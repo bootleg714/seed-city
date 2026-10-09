@@ -172,6 +172,10 @@ details b{color:var(--fg);font-weight:600}
       </div>
     </div>
     <div class="grp">
+      <label class="lbl" for="glow">Glow size <output id="glowOut">60%</output></label>
+      <input id="glow" type="range" min="0" max="100" value="60">
+    </div>
+    <div class="grp">
       <label class="lbl" for="traffic">Traffic <output id="trafficOut">75%</output></label>
       <input id="traffic" type="range" min="0" max="100" value="75">
     </div>
@@ -1559,7 +1563,12 @@ function rainSound(on){
 }
 if (window.matchMedia('(prefers-reduced-motion: reduce)').matches){ speed = 10; $('#speed').value = 10; $('#speedOut').textContent = '10 m/s'; }
 
-const NM = 5;
+const NM = 7;            // blur levels: more levels spread the glow further
+let glowSize = 0.6;      // 0..1 from the Glow size slider
+try{ const v = parseFloat(localStorage.getItem('seedcity.glow')); if (isFinite(v)) glowSize = Math.max(0, Math.min(1, v)); }catch(_){}
+const glowRadius = () => 0.6 + glowSize*2.0;   // stretches each upsample tap
+const glowGain = () => 0.8 + glowSize*0.6;
+const glowSpread = () => 1.0 + glowSize*0.5;  // weight on the wider levels: bigger halos, not just a fainter one
 const hdrOpts = {type:THREE.HalfFloatType, format:THREE.RGBAFormat, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter};
 let sceneRT = null; const down = [], up = [];
 if (hdrOK){
@@ -1569,7 +1578,7 @@ if (hdrOK){
 }
 const POST_V = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy,0.0,1.0); }`;
 const postMat = f => new THREE.ShaderMaterial({uniforms:f.u, vertexShader:POST_V, fragmentShader:f.s, depthTest:false, depthWrite:false});
-const downMat = postMat({u:{tSrc:{value:null}, uTexel:{value:new THREE.Vector2()}, uFirst:{value:0}, uThreshold:{value:1.2}}, s:`
+const downMat = postMat({u:{tSrc:{value:null}, uTexel:{value:new THREE.Vector2()}, uFirst:{value:0}, uThreshold:{value:1.0}}, s:`
 uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uFirst; uniform float uThreshold; varying vec2 vUv;
 vec3 samp(vec2 uv){
   vec3 c = min(texture2D(tSrc, uv).rgb, vec3(40.0));
@@ -1585,15 +1594,15 @@ void main(){
   vec3 s = samp(vUv)*4.0 + samp(vUv-h) + samp(vUv+h) + samp(vUv+vec2(h.x,-h.y)) + samp(vUv-vec2(h.x,-h.y));
   gl_FragColor = vec4(s/8.0, 1.0);
 }`});
-const upMat = postMat({u:{tSmall:{value:null}, tCur:{value:null}, uTexel:{value:new THREE.Vector2()}}, s:`
-uniform sampler2D tSmall; uniform sampler2D tCur; uniform vec2 uTexel; varying vec2 vUv;
+const upMat = postMat({u:{tSmall:{value:null}, tCur:{value:null}, uTexel:{value:new THREE.Vector2()}, uSpread:{value:1}}, s:`
+uniform sampler2D tSmall; uniform sampler2D tCur; uniform vec2 uTexel; uniform float uSpread; varying vec2 vUv;
 void main(){
   vec2 h = uTexel;
   vec3 s = texture2D(tSmall, vUv+vec2(-2.0*h.x,0.0)).rgb + texture2D(tSmall, vUv+vec2(2.0*h.x,0.0)).rgb
          + texture2D(tSmall, vUv+vec2(0.0,-2.0*h.y)).rgb + texture2D(tSmall, vUv+vec2(0.0,2.0*h.y)).rgb
          + 2.0*(texture2D(tSmall, vUv+vec2(-h.x,h.y)).rgb + texture2D(tSmall, vUv+vec2(h.x,h.y)).rgb
               + texture2D(tSmall, vUv+vec2(h.x,-h.y)).rgb + texture2D(tSmall, vUv+vec2(-h.x,-h.y)).rgb);
-  gl_FragColor = vec4(s/12.0 + texture2D(tCur, vUv).rgb, 1.0);
+  gl_FragColor = vec4(s/12.0*uSpread + texture2D(tCur, vUv).rgb, 1.0);
 }`});
 const compMat = postMat({u:{tScene:{value:null}, tBloom:{value:null}, uBloomAmt:{value:0}}, s:`
 uniform sampler2D tScene; uniform sampler2D tBloom; uniform float uBloomAmt; varying vec2 vUv;
@@ -1622,13 +1631,13 @@ function renderFrame(){
     let small = down[NM-1];
     for (let i=NM-2;i>=0;i--){
       upMat.uniforms.tSmall.value = small.texture; upMat.uniforms.tCur.value = down[i].texture;
-      upMat.uniforms.uTexel.value.set(1/small.width, 1/small.height);
+      upMat.uniforms.uTexel.value.set(glowRadius()/small.width, glowRadius()/small.height); upMat.uniforms.uSpread.value = glowSpread();
       pass(upMat, up[i]); small = up[i];
     }
     compMat.uniforms.tBloom.value = up[0].texture;
   }
   compMat.uniforms.tScene.value = sceneRT.texture;
-  compMat.uniforms.uBloomAmt.value = bloomOn ? U.uBloom.value : 0;
+  compMat.uniforms.uBloomAmt.value = bloomOn ? U.uBloom.value*glowGain() : 0;
   if (!compMat.uniforms.tBloom.value) compMat.uniforms.tBloom.value = sceneRT.texture;
   pass(compMat, null);
 }
@@ -1716,6 +1725,10 @@ document.querySelectorAll('#lightSeg button').forEach(b=>b.addEventListener('cli
   else { beamsOn = on; for (const ch of chunks.values()) for (const o of ch.beamObjs) o.visible = on; }
 }));
 if (!hdrOK){ const bb = document.querySelector('#lightSeg [data-v="bloom"]'); bb.setAttribute('aria-pressed','false'); bb.disabled = true; bb.title = 'Bloom needs WebGL2 with float render targets'; bloomOn = false; }
+{ const g = $('#glow'), go = $('#glowOut');
+  g.value = Math.round(glowSize*100); go.textContent = g.value + '%';
+  g.addEventListener('input', e => { glowSize = e.target.value/100; go.textContent = e.target.value + '%'; try{ localStorage.setItem('seedcity.glow', String(glowSize)); }catch(_){} });
+  if (!hdrOK){ g.disabled = true; } }
 $('#soundBtn').addEventListener('click', e=>{
   soundOn = !soundOn; audioUnlock();
   e.currentTarget.setAttribute('aria-pressed', String(soundOn));
