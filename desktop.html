@@ -172,6 +172,10 @@ details b{color:var(--fg);font-weight:600}
       </div>
     </div>
     <div class="grp">
+      <label class="lbl" for="fog">Fog <output id="fogOut">70%</output></label>
+      <input id="fog" type="range" min="0" max="100" value="70">
+    </div>
+    <div class="grp">
       <label class="lbl" for="glow">Glow size <output id="glowOut">60%</output></label>
       <input id="glow" type="range" min="0" max="100" value="60">
     </div>
@@ -267,7 +271,7 @@ const PRESETS = {
   day:{sunDir:[0.45,0.75,-0.4],sunCol:[1.0,0.95,0.85],sunStrength:1,zenith:[0.22,0.42,0.8],horizon:[0.72,0.8,0.9],fog:[0.68,0.74,0.82],sunFog:[0.95,0.92,0.85],fogDensity:0.0015,wallDark:[0.32,0.33,0.37],wallLight:[0.78,0.72,0.64],skyRefl:[0.5,0.62,0.8],lit:0.06,winBright:0.5,cloud:[0.95,0.95,0.97],stars:0,road:[0.22,0.22,0.23],lot:[0.3,0.3,0.29],walk:[0.5,0.48,0.46],line:[0.9,0.85,0.7],street:[0,0,0],carLights:0.25,bodyLight:1.0,exposure:1.0,neon:0.45,bloom:0.09,beam:0.0}
 };
 const KEYMAP={sunDir:'uSunDir',sunCol:'uSunCol',sunStrength:'uSunStrength',zenith:'uZenith',horizon:'uHorizon',fog:'uFogColor',sunFog:'uSunFogCol',fogDensity:'uFogDensity',wallDark:'uWallDark',wallLight:'uWallLight',skyRefl:'uSkyRefl',lit:'uLit',winBright:'uWinBright',cloud:'uCloud',stars:'uStars',road:'uRoad',lot:'uLot',walk:'uWalk',line:'uLine',street:'uStreet',carLights:'uCarLights',bodyLight:'uBodyLight',exposure:'uExposure',neon:'uNeon',bloom:'uBloom',beam:'uBeam'};
-const U = { uTime:{value:0}, uTraffic:{value:0.75}, uPx:{value:1}, uHDR:{value: hdrOK ? 1 : 0}, uRain:{value:0}, uFlash:{value:0}, tRefl:{value:null}, uRes:{value:new THREE.Vector2(1,1)} };
+const U = { uTime:{value:0}, uTraffic:{value:0.75}, uPx:{value:1}, uHDR:{value: hdrOK ? 1 : 0}, uRain:{value:0}, uFlash:{value:0}, uFogScale:{value:0.7}, uFogFar:{value:1180}, tRefl:{value:null}, uRes:{value:new THREE.Vector2(1,1)} };
 for (const k in KEYMAP){
   const v = PRESETS.dusk[k];
   U[KEYMAP[k]] = {value: Array.isArray(v) ? new THREE.Vector3(v[0],v[1],v[2]) : v};
@@ -277,9 +281,11 @@ let timeTarget = PRESETS.dusk;
 /* ---------- GLSL ---------- */
 const COMMON = `
 uniform vec3 uFogColor; uniform vec3 uSunFogCol; uniform vec3 uSunDir;
-uniform float uFogDensity; uniform float uExposure; uniform float uRain; uniform float uFlash;
+uniform float uFogDensity; uniform float uExposure; uniform float uRain; uniform float uFlash; uniform float uFogScale; uniform float uFogFar;
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
-float fogAmt(vec3 wp){ float d = length(wp-cameraPosition); float f = 1.0-exp(-pow(d*uFogDensity*(1.0+0.6*uRain),1.5)); return f*mix(1.0,0.75,clamp(wp.y/500.0,0.0,1.0)); }
+float fogAmt(vec3 wp){ float d = length(wp-cameraPosition); float f = 1.0-exp(-pow(d*uFogDensity*uFogScale*(1.0+0.6*uRain),1.5));
+  f *= mix(1.0,0.75,clamp(wp.y/500.0,0.0,1.0));
+  return max(f, smoothstep(uFogFar*0.8, uFogFar, d)); }   // far fade hides the edge of the generated city however thin the fog
 vec3 fogCol(vec3 dir){ float s = pow(max(dot(dir,normalize(uSunDir)),0.0),6.0); return mix(uFogColor,uSunFogCol,s*(1.0-0.7*uRain)) + vec3(0.55,0.6,0.78)*uFlash; }
 vec3 applyFog(vec3 c, vec3 wp){ vec3 v = normalize(wp-cameraPosition); return mix(c, fogCol(v), fogAmt(wp)); }
 uniform float uHDR;
@@ -1730,6 +1736,11 @@ document.querySelectorAll('#lightSeg button').forEach(b=>b.addEventListener('cli
   else { beamsOn = on; for (const ch of chunks.values()) for (const o of ch.beamObjs) o.visible = on; }
 }));
 if (!hdrOK){ const bb = document.querySelector('#lightSeg [data-v="bloom"]'); bb.setAttribute('aria-pressed','false'); bb.disabled = true; bb.title = 'Bloom needs WebGL2 with float render targets'; bloomOn = false; }
+{ const f = $('#fog'), fo = $('#fogOut');
+  let fv = 0.7; try{ const v = parseFloat(localStorage.getItem('seedcity.fog')); if (isFinite(v)) fv = Math.max(0, Math.min(1, v)); }catch(_){}
+  const applyFog = v => { U.uFogScale.value = 0.1 + v*0.9; f.value = Math.round(v*100); fo.textContent = f.value + '%'; };
+  applyFog(fv);
+  f.addEventListener('input', e => { const v = e.target.value/100; applyFog(v); try{ localStorage.setItem('seedcity.fog', String(v)); }catch(_){} }); }
 { const g = $('#glow'), go = $('#glowOut');
   g.value = Math.round(glowSize*100); go.textContent = g.value + '%';
   g.addEventListener('input', e => { glowSize = e.target.value/100; go.textContent = e.target.value + '%'; try{ localStorage.setItem('seedcity.glow', String(glowSize)); }catch(_){} });
