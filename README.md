@@ -21,7 +21,7 @@ A menu floats over the live city when you start (in VR, point a controller at it
 - **Free Flight:** fly anywhere.
 - **Races:** each seed grows three checkpoint courses that follow the streets. Fly through the rings in order: the next ring is amber, the one after is cyan, and the green ring is the finish. A floating arrow points the way, a 3-2-1 countdown starts you off, and your best time for each course is saved on the device (per seed).
 - **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
-- **Combat** is coming soon.
+- **Combat:** waves of interceptor drones circle you, climb over buildings and fire red bolts that lead your movement (buildings block them). Your shield drops with each hit and recharges after a few seconds out of fire; at zero you're shot down. Each wave adds drones that are faster and shoot more often; clearing one scores a bonus and restores some shield. Your lasers get a slight aim assist, the red arrow points to the nearest drone, and your best score per seed is saved.
 
 ## Music
 

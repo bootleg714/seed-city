@@ -1427,10 +1427,12 @@ const tA = new THREE.Vector3(), tB = new THREE.Vector3();
 function updateBolts(dt){
   for (let n=bolts.length-1; n>=0; n--){
     const b = bolts[n];
+    if (!b.seen){ b.seen = true; if (game === 'combat') aimAssist(b); }
     b.life -= dt;
     tA.copy(b.p); tB.copy(b.p).addScaledVector(b.v, dt);
     let t = segBoxes(tA, tB, 0);
     if (tB.y < 0 && tA.y >= 0) t = Math.min(t, tA.y/(tA.y-tB.y));
+    if (game === 'combat'){ const dh = droneHit(tA, tB); if (dh && dh.t <= t){ killDrone(dh.d); bolts.splice(n,1); continue; } }
     const car = carHit(tA, tB);
     if (car && car.t <= t){
       car.set.P.Ca[car.i*4+2] = 9; car.set.attr.needsUpdate = true;      // hide the car
@@ -1855,7 +1857,7 @@ function startFree(){
 }
 function hideRace(){ gateMeshes.forEach(m=>m.visible = false); gateDisc.visible = false; arrow.visible = false; $('#raceHud').hidden = true; raceHudMesh.visible = false; }
 function enterMenu(p){
-  game = 'menu'; page = p || 'main'; race = null; hideRace(); courierHide(); cour = null;
+  game = 'menu'; page = p || 'main'; race = null; hideRace(); courierHide(); cour = null; combatClear(); cmb = null;
   if (renderer.xr.isPresenting){ fly.pos.y = Math.max(fly.pos.y, 70); fly.vel.set(0,0,0); }
   else if (mode === 'fly') setMode('drone');
   showMenu(true);
@@ -1868,6 +1870,7 @@ function finishRace(){
   enterMenu('results');
 }
 function raceUpdate(dt){
+  if (game === 'combat'){ combatUpdate(dt); return; }
   if (game === 'courier'){ courierUpdate(dt); return; }
   if (game !== 'race' || !race) return;
   if (race.state === 'count'){
@@ -1918,6 +1921,9 @@ function raceUpdate(dt){
 
 /* menu: one description, drawn as an HTML overlay on a flat screen and as a floating panel in VR */
 function menuModel(){
+  if (page === 'xresults' && lastFight) return {title:'SHOT DOWN', big: lastFight.score.toLocaleString('en-US'), rec: lastFight.rec ? 'NEW RECORD' : 'BEST ' + lastFight.best.toLocaleString('en-US'),
+    sub: 'Reached wave ' + lastFight.wave + ' \u00b7 ' + lastFight.kills + (lastFight.kills === 1 ? ' drone' : ' drones') + ' destroyed on seed ' + SEED,
+    items:[{id:'fight', label:'Fight again', sub:'Back to wave 1'}, {id:'courier', label:'Courier', sub:'Something calmer'}, {id:'menu', label:'Main menu', small:true}]};
   if (page === 'cresults' && lastShift) return {title:'SHIFT OVER', big: '\u00a2 ' + lastShift.credits.toLocaleString('en-US'), rec: lastShift.rec ? 'NEW RECORD' : 'BEST \u00a2 ' + lastShift.best.toLocaleString('en-US'),
     sub: lastShift.done + (lastShift.done === 1 ? ' delivery' : ' deliveries') + ' on seed ' + SEED,
     items:[{id:'shift', label:'Work another shift', sub:'Fresh pickups, same city'}, {id:'races', label:'Races', sub:'Checkpoint courses'}, {id:'menu', label:'Main menu', small:true}]};
@@ -1927,12 +1933,13 @@ function menuModel(){
   return {title:'SEED CITY', sub:'Pick how you want to fly. The city keeps living behind this menu.', items:[
     {id:'free', label:'Free Flight', sub:'Fly anywhere. No rules.'},
     {id:'races', label:'Races', sub:'Checkpoint courses grown from the seed'},
-    {id:'combat', label:'Combat', sub:'Coming soon', off:true},
+    {id:'combat', label:'Combat', sub: combatSub()},
     {id:'courier', label:'Courier', sub: courierSub()},
     {id:'newcity', label:'New city', sub:'Seed ' + SEED, small:true, half:true},
     {id:'music', label:'Music', sub: musicLevelName(), small:true, half:true}]};
 }
 function menuAction(id){
+  if (id === 'combat' || id === 'fight'){ startCombat(); return; }
   if (id === 'courier' || id === 'shift'){ startCourier(); return; }
   if (id === 'free') startFree();
   else if (id === 'races'){ page = 'races'; showMenu(true); }
@@ -2270,7 +2277,7 @@ function scheduleMusic(){
   const on = musicOn && soundOn && musicVol > 0 ? 1 : 0;
   const lvl = on*MUSIC_VOL*musicVol;
   if (on !== M.gainOn || lvl !== M.lvl){ M.master.gain.setTargetAtTime(lvl, now, on && !M.gainOn ? 2.5 : 0.25); M.gainOn = on; M.lvl = lvl; }
-  const drv = (game === 'race' || game === 'courier') ? 1 : 0;
+  const drv = (game === 'race' || game === 'courier' || game === 'combat') ? 1 : 0;
   if (drv !== M.driveOn){ M.driveOn = drv; M.drive.gain.setTargetAtTime(drv*0.9, now, drv ? 1.2 : 2.0); if (drv) M.driveSince = now; else M.driveOff = now; }
   if (!on) return;
   while (M.nextChord < ahead){ playChord(M.nextChord); M.nextChord += M.chordLen; M.step++; }
@@ -2308,6 +2315,187 @@ const musicSlider = document.getElementById('musicVol');
 if (musicSlider) musicSlider.addEventListener('input', e => setMusicVol(e.target.value/100));
 saveMusic();
 window.addEventListener('keydown', e => { if ((e.key === 'm' || e.key === 'M') && e.target.tagName !== 'INPUT'){ toggleMusic(); if (game === 'menu') showMenu(true); } });
+
+/* ---------- combat: waves of interceptor drones that circle, climb over buildings and shoot back ---------- */
+let cmb = null, lastFight = null;
+function cmbBestKey(){ return 'seedcity.combat.' + SEED; }
+function getCmbBest(){ try{ const v = parseInt(localStorage.getItem(cmbBestKey()), 10); return isFinite(v) ? v : null; }catch(_){ return null; } }
+function setCmbBest(v){ try{ localStorage.setItem(cmbBestKey(), String(v)); }catch(_){} }
+function combatSub(){ const b = getCmbBest(); return 'Waves of drones that fight back' + (b !== null ? '. Best ' + b.toLocaleString('en-US') : ''); }
+
+const cbMat = col => new THREE.ShaderMaterial({uniforms:Object.assign({uCol:{value:new THREE.Vector3(col[0],col[1],col[2])}}, U), vertexShader:GATE_V, fragmentShader:GATE_F});
+const droneBodyMat = cbMat([0.07,0.075,0.09]), droneRingMat = cbMat([1.7,0.18,0.12]), droneEyeMat = cbMat([2.4,0.9,0.7]);
+const droneBodyGeo = new THREE.OctahedronGeometry(1.4).scale(1.4, 0.7, 1.4);
+const droneRingGeo = new THREE.TorusGeometry(2.0, 0.13, 6, 36).rotateX(Math.PI/2);
+const droneEyeGeo = new THREE.SphereGeometry(0.42, 12, 8);
+const droneFinGeo = new THREE.BoxGeometry(0.15, 0.5, 1.6);
+const DRONE_MAX = 10, drones = [];
+for (let i=0;i<DRONE_MAX;i++){
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(droneRingGeo, droneRingMat);
+  const eye = new THREE.Mesh(droneEyeGeo, droneEyeMat); eye.position.z = 1.15;
+  const f1 = new THREE.Mesh(droneFinGeo, droneBodyMat); f1.position.x = 1.9;
+  const f2 = new THREE.Mesh(droneFinGeo, droneBodyMat); f2.position.x = -1.9;
+  g.add(new THREE.Mesh(droneBodyGeo, droneBodyMat), ring, eye, f1, f2);
+  g.traverse(o => { o.frustumCulled = false; });
+  g.visible = false; scene.add(g);
+  drones.push({g, ring, pos:new THREE.Vector3(), vel:new THREE.Vector3(), active:false, ang:0, rad:50, dy:0, orbit:0.4, cd:3});
+}
+// enemy bolts: same streak as yours, in red, and slow enough to dodge
+const EBOLT_F = BOLT_F.replace('vec3(1.0,0.55,0.18)*2.5', 'vec3(1.0,0.12,0.08)*2.8');
+const EB_MAX = 48, EB_SPEED = 120, ebolts = [];
+const eboltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), mk(BOLT_V, EBOLT_F, additive), EB_MAX);
+eboltMesh.count = 0; eboltMesh.frustumCulled = false; scene.add(eboltMesh);
+const cbV1 = new THREE.Vector3(), cbV2 = new THREE.Vector3(), cbM = new THREE.Matrix4(), cbQ = new THREE.Quaternion(), cbS = new THREE.Vector3(0.3,0.3,5), cbZ = new THREE.Vector3(0,0,1);
+
+const sfxEnemy = () => tone(420, 0.2, 'sawtooth', 0.035, 140);
+const sfxHurt = () => { tone(140, 0.25, 'square', 0.06, 70); tone(900, 0.08, 'sawtooth', 0.03, 300); };
+const sfxWave = () => { tone(392,0.2,'triangle',0.07,0,0); tone(523,0.2,'triangle',0.07,0,0.18); tone(784,0.45,'triangle',0.07,0,0.36); };
+function cbBuzz(v, ms){ if (typeof pad === 'function'){ const l = pad('left'), r = pad('right'); if (l) buzz(l.g, v, ms); if (r) buzz(r.g, v, ms); } }
+
+function waveSpec(n){ return {count: Math.min(2+n, DRONE_MAX), speed: Math.min(22 + 3*n, 46), every: Math.max(1.4, 3.8 - 0.3*n)}; }
+function spawnWave(){
+  const w = waveSpec(cmb.wave);
+  for (let i=0;i<w.count;i++){
+    const d = drones[i], a = Math.random()*Math.PI*2, r = 220 + Math.random()*60;
+    d.pos.set(fly.pos.x + Math.cos(a)*r, Math.max(20, Math.min(150, fly.pos.y - 10 + Math.random()*35)), fly.pos.z + Math.sin(a)*r);
+    d.vel.set(0,0,0); d.active = true; d.g.visible = true;
+    d.ang = a; d.rad = 38 + Math.random()*35; d.dy = -8 + Math.random()*22; d.orbit = (Math.random() < 0.5 ? -1 : 1)*(0.25 + Math.random()*0.35);
+    d.cd = 2 + Math.random()*w.every; d.speed = w.speed*(0.85 + Math.random()*0.3);
+  }
+  cmb.left = w.count; cmb.every = w.every;
+}
+function startCombat(){
+  const presenting = renderer.xr.isPresenting;
+  if (!presenting){ setMode('fly'); chaseInit = false; }
+  fly.pos.y = Math.max(fly.pos.y, 50); fly.vel.set(0,0,0);
+  cmb = {wave:1, score:0, kills:0, shield:100, lastHit:-9, t:0, state:'intro', timer:2.5, msg:'WAVE 1', left:0, every:3.5};
+  game = 'combat'; showMenu(false); audioUnlock(); sfxWave();
+}
+function combatClear(){
+  for (const d of drones){ d.active = false; d.g.visible = false; }
+  ebolts.length = 0; eboltMesh.count = 0;
+  arrow.material.color.setHex(0xffb45e);
+}
+function endCombat(){
+  const s = cmb.score, prev = getCmbBest(), rec = prev === null || s > prev;
+  if (rec) setCmbBest(s);
+  lastFight = {score:s, wave:cmb.wave, kills:cmb.kills, best: rec ? s : prev, rec};
+  sfxFinish();
+  enterMenu('xresults');
+}
+// a slight nudge toward a drone that is almost in your sights
+function aimAssist(b){
+  if (!cmb) return;
+  cbV1.copy(b.v).normalize();
+  let best = null, bestDot = Math.cos(0.1), bestDist = 0;
+  for (const d of drones){
+    if (!d.active) continue;
+    cbV2.copy(d.pos).sub(b.p); const dist = cbV2.length(); if (dist > 420) continue;
+    const dot = cbV2.divideScalar(dist).dot(cbV1);
+    if (dot > bestDot){ best = d; bestDot = dot; bestDist = dist; }
+  }
+  if (!best) return;
+  const sp = b.v.length();
+  cbV2.copy(best.vel).multiplyScalar(bestDist/sp).add(best.pos).sub(b.p).normalize();
+  b.v.copy(cbV2).multiplyScalar(sp);
+}
+function droneHit(a, b){
+  let best = null;
+  const abx = b.x-a.x, aby = b.y-a.y, abz = b.z-a.z, ab2 = abx*abx+aby*aby+abz*abz || 1;
+  for (const d of drones){
+    if (!d.active) continue;
+    const tt = Math.max(0, Math.min(1, ((d.pos.x-a.x)*abx + (d.pos.y-a.y)*aby + (d.pos.z-a.z)*abz)/ab2));
+    const dx = a.x+abx*tt-d.pos.x, dy = a.y+aby*tt-d.pos.y, dz = a.z+abz*tt-d.pos.z;
+    if (dx*dx+dy*dy+dz*dz < 3.4*3.4 && (!best || tt < best.t)) best = {t:tt, d};
+  }
+  return best;
+}
+function killDrone(d){
+  d.active = false; d.g.visible = false;
+  burst(d.pos, 160, 30, true);
+  camera.getWorldPosition(cbV1); const dist = d.pos.distanceTo(cbV1);
+  sfxBoom(Math.max(0.2, 1 - dist/400));
+  cmb.kills++; cmb.left--; cmb.score += 100*cmb.wave; hits++; updateKeys();
+  cbBuzz(0.5, 60);
+}
+function hurtPlayer(){
+  cmb.shield -= 14; cmb.lastHit = cmb.t;
+  shake = Math.max(shake, 0.6); sfxHurt(); cbBuzz(0.9, 120);
+  if (cmb.shield <= 0){ cmb.shield = 0; cmb.state = 'down'; cmb.timer = 1.4; burst(fly.pos, 200, 34, true); sfxBoom(1); for (const d of drones) d.cd = 99; }
+}
+function combatUpdate(dt){
+  if (!cmb) return;
+  cmb.t += dt;
+  if (cmb.state === 'down'){ cmb.timer -= dt; if (cmb.timer <= 0){ endCombat(); return; } }
+  else if (cmb.state === 'intro'){ cmb.timer -= dt; if (cmb.timer <= 0){ cmb.state = 'fight'; spawnWave(); } }
+  else if (cmb.left <= 0){
+    cmb.score += 250*cmb.wave; cmb.wave++; cmb.shield = Math.min(100, cmb.shield + 30);
+    cmb.state = 'intro'; cmb.timer = 3; cmb.msg = 'WAVE ' + cmb.wave + '  ·  SHIELD +30'; sfxWave();
+  }
+  if (cmb.state !== 'down' && cmb.t - cmb.lastHit > 3) cmb.shield = Math.min(100, cmb.shield + 8*dt);
+  // drones: orbit you at combat range, climb over anything in the way, fire bolts that lead your movement
+  let nearest = null, nd = 1e9;
+  for (const d of drones){
+    if (!d.active) continue;
+    d.ang += d.orbit*dt;
+    cbV1.set(fly.pos.x + Math.cos(d.ang)*d.rad, Math.max(14, fly.pos.y + d.dy), fly.pos.z + Math.sin(d.ang)*d.rad);
+    cbV1.sub(d.pos); const far = cbV1.length();
+    cbV1.multiplyScalar(d.speed*Math.min(1, far/30)/(far || 1));
+    d.vel.lerp(cbV1, 1 - Math.exp(-dt*1.6));
+    cbV2.copy(d.pos).addScaledVector(d.vel, 1.2);
+    if (segBoxes(d.pos, cbV2, 2.5) < 1) d.vel.y = Math.max(d.vel.y, d.speed*0.9);
+    d.pos.addScaledVector(d.vel, dt); d.pos.y = Math.max(d.pos.y, 10);
+    d.g.position.copy(d.pos); d.g.lookAt(fly.pos); d.ring.rotation.y += dt*3;
+    const dist = d.pos.distanceTo(fly.pos);
+    if (dist < nd){ nd = dist; nearest = d; }
+    d.cd -= dt;
+    if (cmb.state === 'fight' && d.cd <= 0 && dist < 170){
+      d.cd = cmb.every*(0.7 + Math.random()*0.6);
+      if (segBoxes(d.pos, fly.pos, 0) >= 1){
+        cbV2.copy(fly.vel).multiplyScalar(0.6*dist/EB_SPEED).add(fly.pos).sub(d.pos).normalize();
+        cbV2.x += (Math.random()-0.5)*0.05; cbV2.y += (Math.random()-0.5)*0.05; cbV2.z += (Math.random()-0.5)*0.05; cbV2.normalize();
+        ebolts.push({p: d.pos.clone(), v: cbV2.clone().multiplyScalar(EB_SPEED), life:3});
+        if (ebolts.length > EB_MAX) ebolts.shift();
+        if (dist < 120) sfxEnemy();
+      }
+    }
+  }
+  // enemy bolts: buildings stop them; they hit you if they pass close to the car
+  for (let i=ebolts.length-1;i>=0;i--){
+    const e = ebolts[i]; e.life -= dt;
+    cbV1.copy(e.p); cbV2.copy(e.p).addScaledVector(e.v, dt);
+    const abx = cbV2.x-cbV1.x, aby = cbV2.y-cbV1.y, abz = cbV2.z-cbV1.z, ab2 = abx*abx+aby*aby+abz*abz || 1;
+    const tt = Math.max(0, Math.min(1, ((fly.pos.x-cbV1.x)*abx + (fly.pos.y-cbV1.y)*aby + (fly.pos.z-cbV1.z)*abz)/ab2));
+    const dx = cbV1.x+abx*tt-fly.pos.x, dy = cbV1.y+aby*tt-fly.pos.y, dz = cbV1.z+abz*tt-fly.pos.z;
+    if (cmb.state !== 'down' && dx*dx+dy*dy+dz*dz < 2.4*2.4){ ebolts.splice(i,1); hurtPlayer(); continue; }
+    const tw = segBoxes(cbV1, cbV2, 0);
+    if (tw < 1 || cbV2.y < 0){ cbV1.lerp(cbV2, Math.min(tw,1)); burst(cbV1, 10, 10, false); ebolts.splice(i,1); continue; }
+    e.p.copy(cbV2);
+    if (e.life <= 0) ebolts.splice(i,1);
+  }
+  for (let i=0;i<ebolts.length;i++){
+    const e = ebolts[i];
+    cbV2.copy(e.v).normalize(); cbQ.setFromUnitVectors(cbZ, cbV2);
+    cbV1.copy(e.p).addScaledVector(cbV2, -2.5);
+    cbM.compose(cbV1, cbQ, cbS); eboltMesh.setMatrixAt(i, cbM);
+  }
+  eboltMesh.count = ebolts.length; eboltMesh.instanceMatrix.needsUpdate = true;
+  // arrow to the nearest drone
+  placeArrow(dt);
+  arrow.material.color.setHex(0xff5a4a);
+  if (nearest){ arrow.lookAt(nearest.pos); arrow.visible = true; } else arrow.visible = false;
+  // readout
+  const bars = Math.round(cmb.shield/10);
+  const head = 'WAVE ' + cmb.wave + '   SCORE ' + cmb.score.toLocaleString('en-US');
+  let sub;
+  if (cmb.state === 'down') sub = 'SHOT DOWN';
+  else if (cmb.state === 'intro') sub = cmb.msg;
+  else sub = 'SHIELD ' + '▮'.repeat(bars) + '▯'.repeat(10-bars) + '  ·  ' + cmb.left + (cmb.left === 1 ? ' DRONE' : ' DRONES');
+  const presenting = renderer.xr.isPresenting;
+  if (presenting){ raceHudMesh.visible = true; drawRaceHud(head, sub); $('#raceHud').hidden = true; }
+  else { const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>'; }
+}
 
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });
 enterMenu();
