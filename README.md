@@ -23,6 +23,10 @@ A menu floats over the live city when you start (in VR, point a controller at it
 - **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
 - **Combat** is coming soon.
 
+## Music
+
+The soundtrack is composed live from the seed: each city gets its own minor key, chord progression and tempo, with slow detuned synth pads, a soft bass and bell notes in a big reverb. During Races and Courier a driving layer (arpeggio, soft kick, hi-hats) fades in. Toggle it with **Music** in the menu (or **M** on desktop); it also follows the Sound on/off button.
+
 ## VR controls (Quest)
 
 - **Left stick:** fly forward, back and sideways

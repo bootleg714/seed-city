@@ -95,6 +95,7 @@ details b{color:var(--fg);font-weight:600}
 .mbtn:hover,.mbtn:focus-visible{border-color:var(--amber);background:rgba(255,180,94,.12)}
 .mbtn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .mbtn.small{grid-column:1/-1;padding:10px 14px}
+.mbtn.half{padding:10px 14px}
 .mbtn.off{opacity:.45;cursor:default;pointer-events:none}
 .racehud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 16px);left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 16px;font:600 18px/1.3 var(--f-data);font-variant-numeric:tabular-nums;text-align:center;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .racehud small{display:block;font:500 11px/1.3 var(--f-data);letter-spacing:.12em;color:var(--muted)}
@@ -1510,7 +1511,8 @@ function renderReflection(){
 let actx = null, soundOn = true, noiseBuf = null;
 function audioUnlock(){
   if (!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(_){ actx = null; } }
-  if (actx && actx.state === 'suspended') actx.resume().catch(()=>{});
+  if (actx && actx.state === 'suspended') actx.resume().then(()=>{ if (musicOn) startMusic(); }).catch(()=>{});
+  else if (actx && musicOn) startMusic();
 }
 function sfxZap(){
   if (!soundOn || !actx || actx.state !== 'running') return;
@@ -2174,14 +2176,16 @@ function menuModel(){
     {id:'races', label:'Races', sub:'Checkpoint courses grown from the seed'},
     {id:'combat', label:'Combat', sub:'Coming soon', off:true},
     {id:'courier', label:'Courier', sub: courierSub()},
-    {id:'newcity', label:'New city', sub:'Seed ' + SEED + '. Best times are kept per seed.', small:true}]};
+    {id:'newcity', label:'New city', sub:'Seed ' + SEED, small:true, half:true},
+    {id:'music', label:'Music', sub: musicOn ? 'On' : 'Off', small:true, half:true}]};
 }
 function menuAction(id){
   if (id === 'courier' || id === 'shift'){ startCourier(); return; }
   if (id === 'free') startFree();
   else if (id === 'races'){ page = 'races'; showMenu(true); }
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
-  else if (id === 'newcity'){ newCity(); showMenu(true); }
+  else if (id === 'newcity'){ newCity(); seedMusic(); showMenu(true); }
+  else if (id === 'music'){ toggleMusic(); showMenu(true); }
   else if (id.startsWith('course')) startRace(parseInt(id.slice(6),10));
   else if (id === 'retry') startRace(lastResult ? lastResult.k : raceK);
   else if (id === 'next') startRace((lastResult ? lastResult.k : raceK)%3 + 1);
@@ -2197,7 +2201,7 @@ function buildMenuDom(){
   let h = '<p class="mt">' + md.title + '</p>';
   if (md.big) h += '<div class="big">' + md.big + '</div><div class="rec">' + md.rec + '</div>';
   h += '<p class="ms">' + md.sub + '</p><div class="mgrid">';
-  for (const it of md.items) h += '<button class="mbtn' + (it.small ? ' small' : '') + (it.off ? ' off' : '') + '" data-id="' + it.id + '"' + (it.off ? ' disabled' : '') + '><b>' + it.label + '</b>' + (it.sub ? '<span>' + it.sub + '</span>' : '') + '</button>';
+  for (const it of md.items) h += '<button class="mbtn' + (it.small && !it.half ? ' small' : '') + (it.half ? ' half' : '') + (it.off ? ' off' : '') + '" data-id="' + it.id + '"' + (it.off ? ' disabled' : '') + '><b>' + it.label + '</b>' + (it.sub ? '<span>' + it.sub + '</span>' : '') + '</button>';
   card.innerHTML = h + '</div>';
   card.querySelectorAll('.mbtn').forEach(b => b.addEventListener('click', () => { audioUnlock(); menuAction(b.dataset.id); }));
 }
@@ -2209,9 +2213,13 @@ const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.125), new THREE.M
 menuMesh.position.set(0, 0.16, -2.0);   // high enough to clear the dashboard screen menuMesh.visible = false; menuMesh.frustumCulled = false; menuMesh.renderOrder = 10;
 rig.add(menuMesh);
 function menuLayout(md){
-  const rects = []; let y = md.big ? 300 : 210; let col = 0;
+  const rects = []; let y = md.big ? 300 : 210; let col = 0, hcol = 0;
   for (const it of md.items){
-    if (it.small){ if (col){ y += 170; col = 0; } rects.push({it, x:60, y, w:MW-120, h:84}); y += 104; }
+    if (it.small){
+      if (col){ y += 170; col = 0; }
+      if (it.half){ rects.push({it, x: hcol ? 532 : 60, y, w:432, h:84}); if (hcol) y += 104; hcol = 1-hcol; }
+      else { if (hcol){ y += 104; hcol = 0; } rects.push({it, x:60, y, w:MW-120, h:84}); y += 104; }
+    }
     else { rects.push({it, x: col ? 532 : 60, y, w:432, h:150}); if (col){ y += 170; } col = 1-col; }
   }
   return rects;
@@ -2400,6 +2408,127 @@ function courierUpdate(dt){
   if (presenting){ raceHudMesh.visible = true; drawRaceHud(head, sub); $('#raceHud').hidden = true; }
   else { const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>'; }
 }
+
+/* ---------- procedural score: ambient synth music composed live from the seed ---------- */
+let music = null, musicOn = true;
+const MUSIC_VOL = 0.8;   // master level; the compressor catches the peaks
+try{ musicOn = localStorage.getItem('seedcity.music') !== 'off'; }catch(_){}
+const mtof = m => 440*Math.pow(2, (m-69)/12);
+const MINOR = [0,2,3,5,7,8,10];
+const PROGS = [[0,5,2,6],[0,3,5,4],[0,6,5,6],[0,5,3,4],[0,2,5,6],[0,3,6,5]];
+function scaleNote(root, deg){ const o = Math.floor(deg/7), d = ((deg%7)+7)%7; return root + MINOR[d] + 12*o; }
+function seedMusic(){
+  if (!music) return;
+  let c = 0; const r = () => hh(SEED, 4242, 7, c++);
+  music.root = [45,48,50,52,53,43][Math.floor(r()*6)];            // A, C, D, E, F or G minor
+  music.prog = PROGS[Math.floor(r()*PROGS.length)];
+  music.bpm = 88 + Math.round(r()*18);
+  music.chordLen = 60/music.bpm*8;                                 // two bars per chord
+}
+function makeImpulse(a, sec){
+  const len = Math.floor(a.sampleRate*sec), b = a.createBuffer(2, len, a.sampleRate);
+  for (let ch=0; ch<2; ch++){ const d = b.getChannelData(ch); for (let i=0;i<len;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/len, 3.2); }
+  return b;
+}
+function startMusic(){
+  if (music || !actx || actx.state !== 'running') return;
+  const a = actx;
+  const master = a.createGain(); master.gain.value = 0;
+  const comp = a.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.3;
+  master.connect(comp); comp.connect(a.destination);
+  const verb = a.createConvolver(); verb.buffer = makeImpulse(a, 4.5);
+  const verbOut = a.createGain(); verbOut.gain.value = 0.6; verb.connect(verbOut); verbOut.connect(master);
+  const dry = a.createGain(); dry.gain.value = 0.45; dry.connect(master);
+  const drive = a.createGain(); drive.gain.value = 0; drive.connect(master);
+  const driveVerb = a.createGain(); driveVerb.gain.value = 0.25; drive.connect(driveVerb); driveVerb.connect(verb);
+  const hat = a.createBuffer(1, Math.floor(a.sampleRate*0.06), a.sampleRate);
+  { const d = hat.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1; }
+  music = {master, comp, verb, dry, drive, hat, step:0, chord:[57,60,64], nextChord: a.currentTime+0.2, nextBeat: a.currentTime+0.2, beatI:0, gainOn:-1, driveOn:-1};
+  seedMusic();
+  music.timer = setInterval(scheduleMusic, 100);
+  scheduleMusic();
+}
+function padVoice(t, midi, dur, vol, out){
+  const a = actx, M = music;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t+2.2);
+  g.gain.setValueAtTime(vol, t+Math.max(2.3, dur-2.6)); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  const f = a.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7;
+  f.frequency.setValueAtTime(450, t); f.frequency.linearRampToValueAtTime(1500, t+dur*0.5); f.frequency.linearRampToValueAtTime(550, t+dur);
+  for (const dt of [-8, 8]){ const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(midi); o.detune.value = dt; o.connect(f); o.start(t); o.stop(t+dur+0.05); }
+  f.connect(g); g.connect(out || M.dry); g.connect(M.verb);
+}
+function bassVoice(t, midi, dur){
+  const a = actx, g = a.createGain(), o = a.createOscillator();
+  o.type = 'triangle'; o.frequency.value = mtof(midi);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t+1.2);
+  g.gain.setValueAtTime(0.11, t+dur-1.5); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(music.dry); o.start(t); o.stop(t+dur+0.05);
+}
+function bell(t, midi){
+  const a = actx, g = a.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.035, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+3.2);
+  for (const [mul, v] of [[1,1],[2.76,0.35],[5.4,0.12]]){ const o = a.createOscillator(), og = a.createGain(); o.type = 'sine'; o.frequency.value = mtof(midi)*mul; og.gain.value = v; o.connect(og); og.connect(g); o.start(t); o.stop(t+3.3); }
+  g.connect(music.verb); const d = a.createGain(); d.gain.value = 0.3; g.connect(d); d.connect(music.dry);
+}
+function playChord(t){
+  const M = music, deg = M.prog[M.step % M.prog.length];
+  const tones = [scaleNote(M.root+12, deg), scaleNote(M.root+12, deg+2), scaleNote(M.root+12, deg+4), scaleNote(M.root+12, deg+6)];
+  M.chord = tones;
+  const dur = M.chordLen + 2.6;
+  tones.forEach((m, i) => padVoice(t, m, dur, i === 3 ? 0.022 : 0.04));
+  padVoice(t, tones[0]+12, dur, 0.018);
+  bassVoice(t, scaleNote(M.root, deg), dur);
+  // a few glassy bell notes drifting over the chord
+  let c = 0; const r = () => hh(SEED, M.step, 99, c++);
+  const n = 1 + Math.floor(r()*3);
+  for (let i=0;i<n;i++) bell(t + r()*M.chordLen*0.85, scaleNote(M.root+24, deg + [0,2,4,6,7][Math.floor(r()*5)]));
+}
+function playBeat(t, i){
+  const a = actx, M = music, out = M.drive;
+  // arpeggio on sixteenths
+  const pat = [0,1,2,3,2,1,0,2];
+  const m = M.chord[pat[i%8] % M.chord.length] + (i%16 >= 8 ? 12 : 0);
+  const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+  o.type = 'square'; o.frequency.value = mtof(m);
+  f.type = 'lowpass'; f.frequency.value = 1700; f.Q.value = 3;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.06, t+0.005); g.gain.exponentialRampToValueAtTime(0.0001, t+0.16);
+  o.connect(f); f.connect(g); g.connect(out); o.start(t); o.stop(t+0.18);
+  if (i%4 === 0){ // soft kick on the beat
+    const k = a.createOscillator(), kg = a.createGain();
+    k.frequency.setValueAtTime(120, t); k.frequency.exponentialRampToValueAtTime(42, t+0.14);
+    kg.gain.setValueAtTime(0.32, t); kg.gain.exponentialRampToValueAtTime(0.0001, t+0.28);
+    k.connect(kg); kg.connect(out); k.start(t); k.stop(t+0.3);
+  }
+  if (i%4 === 2){ // hi-hat on the offbeat
+    const s = a.createBufferSource(), hp = a.createBiquadFilter(), hg = a.createGain();
+    s.buffer = M.hat; hp.type = 'highpass'; hp.frequency.value = 7000;
+    hg.gain.setValueAtTime(0.05, t); hg.gain.exponentialRampToValueAtTime(0.0001, t+0.05);
+    s.connect(hp); hp.connect(hg); hg.connect(out); s.start(t);
+  }
+}
+function scheduleMusic(){
+  const a = actx, M = music; if (!M) return;
+  const now = a.currentTime, ahead = now + 0.35;
+  if (M.nextChord < now - 1) M.nextChord = now + 0.1;      // the tab was asleep: don't burst through missed chords
+  if (M.nextBeat < now - 1) M.nextBeat = now + 0.1;
+  const on = musicOn && soundOn ? 1 : 0;
+  if (on !== M.gainOn){ M.gainOn = on; M.master.gain.setTargetAtTime(on*MUSIC_VOL, now, on ? 2.5 : 0.4); }
+  const drv = (game === 'race' || game === 'courier') ? 1 : 0;
+  if (drv !== M.driveOn){ M.driveOn = drv; M.drive.gain.setTargetAtTime(drv*0.9, now, drv ? 1.2 : 2.0); if (drv) M.driveSince = now; else M.driveOff = now; }
+  if (!on) return;
+  while (M.nextChord < ahead){ playChord(M.nextChord); M.nextChord += M.chordLen; M.step++; }
+  const sixteenth = 60/M.bpm/4;
+  const driveAudible = M.driveOn === 1 || (M.driveOff && now - M.driveOff < 6);
+  while (M.nextBeat < ahead){ if (driveAudible) playBeat(M.nextBeat, M.beatI); M.nextBeat += sixteenth; M.beatI++; }
+}
+function toggleMusic(){
+  musicOn = !musicOn;
+  try{ localStorage.setItem('seedcity.music', musicOn ? 'on' : 'off'); }catch(_){}
+  audioUnlock();
+  if (musicOn) startMusic();
+}
+window.addEventListener('keydown', e => { if ((e.key === 'm' || e.key === 'M') && e.target.tagName !== 'INPUT'){ toggleMusic(); if (game === 'menu') showMenu(true); } });
 
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });
 enterMenu();
