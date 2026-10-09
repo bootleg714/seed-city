@@ -1,0 +1,472 @@
+================================================================================
+ SEED CITY  —  PROJECT HANDOFF
+ Browser game + Meta Quest VR build, made in one Claude session on 2026-10-09
+================================================================================
+
+This file explains what Seed City is, how it was built, how the code is laid
+out, and what to know before changing it. It is written for future-you or for
+whoever (human or AI) picks the project up next. It covers everything done in
+the original build session, from the first prototype to 3D sound.
+
+
+--------------------------------------------------------------------------------
+ 1. QUICK FACTS
+--------------------------------------------------------------------------------
+
+ Repository     github.com/bootleg714/seed-city   (public, branch: main)
+ Play: desktop  https://bootleg714.github.io/seed-city/desktop.html
+ Play: VR       https://bootleg714.github.io/seed-city/
+                (open in the Quest browser, press "Enter VR")
+ Hosting        GitHub Pages, deploy from branch main, folder / (root)
+ Tech           Plain HTML + JavaScript in single files, three.js r128 loaded
+                from cdnjs, WebGL + WebXR + Web Audio. No build step, no
+                server, no assets: every model, texture, sound and note of
+                music is generated in code.
+ Size           index.html (VR) ~172 KB / 3,078 lines
+                desktop.html     ~160 KB / 2,853 lines
+ Default seed   2611
+
+ There is also a private copy of the desktop build as a Claude artifact
+ ("Seed City"). That was the original workbench while the game was built.
+ The owner set it to private; the GitHub desktop.html link is the one to
+ share. Each change during the session was applied to all three copies.
+
+
+--------------------------------------------------------------------------------
+ 2. HOW THE PROJECT CAME ABOUT (unorthodox start)
+--------------------------------------------------------------------------------
+
+ It started from a post on X showing "Gigacity" (sael.net/gigacity), a
+ procedural endless city running in a browser on WebGPU, credited as
+ "100% code by Opus 5.5". The owner shared four screenshots and asked how it
+ was possible. The explanation (seeded hashing, chunked streaming, shader-
+ painted windows, GPU instancing, math-only traffic, fog and bloom) turned
+ into "can you build a small version?", which grew step by step into a game.
+
+ Order of work, roughly:
+   1. Endless seeded city fly-through (Claude artifact, WebGL/three.js)
+   2. Shaped flying cars, neon signs, autopilot that turns at intersections
+   3. Free-fly camera with collisions, then third-person chase view
+   4. Lasers with sparks and car explosions; detailed player car
+   5. HDR rendering + bloom, floodlights, searchlights, light pools
+   6. Live reflections on the player car (cube camera)
+   7. Landmark towers (HDR light treatments), tuned by owner feedback
+   8. Rain: streaks, wet-street mirror reflections, lightning, wet car
+   9. Asked if a Quest 2 game was possible -> WebXR build on GitHub Pages
+  10. VR controls, interior cockpit, chase and float views
+  11. Main menu over the live city; Races; then Courier; then Combat
+  12. Overlay guide arrow, cockpit dash tweaks
+  13. Procedural music + volume control
+  14. Bigger bloom (sun/moon excluded), lighter fog with seamless horizon
+  15. 3D positional sound (HRTF), strongest in VR
+
+
+--------------------------------------------------------------------------------
+ 3. FILES AND BUILDS
+--------------------------------------------------------------------------------
+
+ desktop.html   FULL build for PC browsers. Every effect: HDR + 7-level bloom,
+                rain with mirror reflections, player-car cube-map reflections,
+                wet car, fog slider, glow slider, chase/cockpit views.
+
+ index.html     VR build, tuned for Quest 2. Same city, menu, modes, music and
+                3D sound, plus WebXR, controllers, cockpit and overlays. It
+                drops expensive effects to hold frame rate (see section 9).
+                On a PC with no headset it runs as a flat preview with a
+                controls list.
+
+ README.md      Player-facing description, controls, recovery tips.
+ HANDOFF.txt    This file.
+ .nojekyll      Tells GitHub Pages to serve files as-is.
+
+ The two HTML files share most code but are NOT generated from a common
+ source; they are separate files that received the same patches. When you
+ change shared behaviour, change it in both. (A future cleanup could split
+ shared code into .js modules; see the backlog.)
+
+
+--------------------------------------------------------------------------------
+ 4. CODE LAYOUT (inside each HTML file)
+--------------------------------------------------------------------------------
+
+ <style>      HUD, controls panel, menu overlay, race HUD (tokens on :root)
+ <body>       canvas, HUD (title, stats), controls panel, menu overlay,
+              race HUD, key hints, VR button/notes (index.html only)
+ <script>     three.js r128 from cdnjs, then ONE inline script wrapped in an
+              IIFE. Rough order inside it:
+
+   renderer + HDR capability check (hdrOK)
+   constants: CELL=50 m block (incl. 10 m road), CN blocks per chunk, R radius
+   hh()  integer hash  ->  the whole city derives from hh(SEED, a, b, c)
+   PRESETS (day / dusk / night) -> uniforms (KEYMAP), lerped on change
+   GLSL: COMMON (fog, tonemap), sky, ground, buildings, cars, glows,
+         beacons, rings, signs, beams/lamps/pools, rain, bolts, particles
+   car geometry (traffic + detailed player car), player headlight beams
+   procedural lots: tower(), genLot()  (heights, tiers, signs, beams,
+         beacons, rings, landmark styles)
+   buildChunk(): instanced meshes for buildings, signs, beams, traffic
+   chunk streaming: updateChunks()
+   camera modes, autopilot path, fly physics, collisions
+   lasers, sparks, explosions, SFX
+   rain, wet-street reflection camera, lightning
+   post-processing: HDR target, bloom chain, composite
+   UI wiring (panel, keys)
+   [VR only] controllers, vrStep(), cockpit, views, reticle, Enter VR
+   game modes: menu, races, courier, music, combat, 3D sound
+   frame loop (renderer.setAnimationLoop in VR build; rAF on desktop)
+
+
+--------------------------------------------------------------------------------
+ 5. THE PROCEDURAL CITY
+--------------------------------------------------------------------------------
+
+ Determinism. Everything comes from hh(SEED, x, z, salt). Same seed, same
+ city, always. Changing the seed grows a different city. Nothing is stored.
+
+ Chunks. The world is a grid of 50 m blocks grouped into chunks
+ (desktop: 8x8 blocks = 400 m, radius 3 -> 7x7 chunks; VR: 12x12 = 600 m,
+ radius 1 -> 3x3). Chunks are generated ahead of the camera (prioritised in
+ the heading direction) and disposed behind it, so the city never ends.
+
+ Lots. district() noise sets density. genLot() picks: plaza (5%), four small
+ buildings, or one tower. tower() stacks 1-3 tiers with setbacks, adds
+ rooftop beacons (>110 m), antennas + halo rings on supertalls (>260 m),
+ neon signs (flush or blade), floodlights, rooftop searchlights, and maybe a
+ landmark treatment. Each box is an instance: position, size, seed, style.
+
+ Windows are not geometry. The building fragment shader divides each wall
+ into floors and window cells, hashes each cell for lit/unlit and colour,
+ adds shopfronts at street level, and fades to an average at distance to
+ avoid shimmer. Neon sign lettering is drawn the same way.
+
+ Landmarks (style >= 3 encodes the type). Ribbon 45% (light line at every
+ floor + uplight; owner's favourite), edge-lit 25% (corner strips + climbing
+ rings), crown 22% (glowing tier tops), LED screen band 8% (two-tone band,
+ not full skin; full rainbow skins were judged too loud and too common).
+ About half of supertalls get one; more downtown.
+
+ Traffic lives on the GPU. Each car is a lane (axis, coordinate, offset,
+ speed) plus per-car data. Its position each frame is
+     along = (offset + dir * speed * time) mod chunkLength
+ computed in the vertex shader. ~17k cars on desktop, ~3k in VR. Ground and
+ flying lanes; flying cars bob. Destroyed cars are hidden by setting their
+ traffic threshold above 1 in the instance buffer. Any CPU code that needs a
+ car position (laser hits, 3D sound) recomputes it with the same formula.
+
+ Pads, rings and roofs. Race courses walk the road grid so rings always sit
+ over open street. Courier pads call genLot() for a block and use the top of
+ its tallest box, so pads sit exactly on the rendered roof.
+
+
+--------------------------------------------------------------------------------
+ 6. RENDERING
+--------------------------------------------------------------------------------
+
+ HDR (desktop). The scene renders into a half-float multisampled target, so
+ lights can exceed 1.0 ("brighter than white"). Final composite tone-maps
+ with 1 - exp(-c), adds a slight vignette and dither. Shaders call tonemap(),
+ which is a pass-through in HDR mode and a real tone map when HDR is off.
+
+ Bloom (desktop). Dual-filter chain, 7 levels (was 5). First downsample
+ applies a soft threshold (1.0). Upsample taps are stretched by
+ glowRadius() and wider levels weighted by glowSpread(); glowGain() scales
+ the result. All three follow the Glow size slider (default 60%).
+ SKY EXCEPTION: the sky writes alpha 0 into the HDR buffer. The prefilter
+ uses the original threshold (1.2) for those pixels and scales them by
+ skyGlowK() so the sun and moon keep their original glow at any slider
+ setting. (Owner request: bigger glow on everything except sun and moon.)
+
+ Fog. fogAmt() = exponential-ish fog x uFogDensity (per time of day) x
+ uFogScale (Fog slider, default 70% of original) x (1 + 0.6 x rain), lighter
+ with height. A separate smoothstep toward the fog colour between ~945 and
+ 1180 m (uFogFar) ALWAYS hides the edge of the generated city, so lowering
+ fog never reveals chunk edges. VR keeps its own denser fog.
+
+ Lighting extras: wall floodlights with ground light pools, sweeping
+ rooftop searchlights, beacons, player headlight cones (additive cone
+ meshes, fresnel-faded). Landmark and neon colours are pushed into HDR.
+
+ Player-car reflections (desktop). A 128 px cube camera at the car renders
+ 2 faces per frame (full refresh every 3 frames), mipmapped; the car shader
+ mixes a tinted metallic base and a Fresnel clear coat. Only runs in chase
+ view. Toggle: Lighting > Reflections (also the biggest frame-rate saver).
+
+ Rain (desktop). 22k GPU-animated streaks in a box around the camera; storm
+ sky, no stars, lightning flashes with thunder. Wet streets: the city is
+ rendered from a camera mirrored under the road at half resolution, sampled
+ by the ground shader with vertical streak blur, puddle noise and ripple
+ rings. Wet player car: darker paint, sharp clear coat, water beads (each a
+ tiny curved mirror into the cube map) and sliding drips.
+
+
+--------------------------------------------------------------------------------
+ 7. FLIGHT, CAMERAS, COMBAT BASICS
+--------------------------------------------------------------------------------
+
+ Camera modes (desktop): Street, Drone, Sky (autopilot following roads and
+ turning at intersections, never leaves the road grid) and Fly (manual).
+ Fly views: Chase (third person, camera pulls in if a wall is in the way)
+ and Cockpit.
+
+ Fly physics: thrust along view direction, drag, boost x2.5. Collisions:
+ sphere vs building boxes from a per-chunk spatial index (cells map),
+ sub-stepped at high speed, reflective bounce with shake + red flash +
+ bump counter. segBoxes(a, b, margin) is the shared segment-vs-buildings
+ test (used by lasers, chase camera clearance, drone line of sight).
+
+ Lasers: alternating left/right bolts from the nose at ~9/s, speed 420 m/s.
+ Hit buildings -> sparks; hit cars -> fireball, car removed until its chunk
+ regenerates. Particles are a 1500-point pool with additive sprites.
+
+
+--------------------------------------------------------------------------------
+ 8. GAME MODES
+--------------------------------------------------------------------------------
+
+ Menu. Floats over the live city on load and after each mode (B in VR,
+ Esc on desktop). menuModel() describes the current page once; it is drawn
+ as an HTML overlay on flat screens and as a canvas texture panel in VR
+ (pointer raycast + trigger). Items: Free Flight, Races, Combat, Courier,
+ New city, Music.
+
+ Races. makeCourse(k) walks the road grid from a seeded intersection: 10
+ rings, altitude 14-84 m, turns of 2-4 blocks. 3-2-1 countdown with beeps,
+ next ring amber, following ring cyan, finish green, chime per gate, timer,
+ results with "new record". 3 courses per seed. Best time per seed+course.
+
+ Courier. 90 s shift. Cyan column = pickup, amber = drop-off. Land on a
+ rooftop pad: horizontal distance < pad radius + 1.5, 0.3-10 m above roof,
+ speed < 10 m/s, hold 0.6 s. Pay: 100 + 12 per second of bonus left (50 if
+ late). Each delivery +12 s. Bumps with cargo -5. Best shift per seed.
+
+ Combat. Waves of interceptor drones (dark octahedron, spinning red ring,
+ eye). Wave n: min(2+n, 10) drones, speed min(22+3n, 46), fire interval
+ max(1.4, 3.8-0.3n) s. Drones orbit at 38-73 m, climb over buildings, fire
+ red bolts at 120 m/s that lead your motion; buildings block them. Shield
+ -14 per hit, regen after 3 s, shot down at 0. Clearing a wave: +250 x wave
+ and +30 shield. Kill: 100 x wave. Player bolts get a slight aim assist
+ (within ~6 degrees). Best score per seed. Owner was happy with balance.
+
+ Guide arrow. A flat 3D arrow in the overlay (always on top), upper middle
+ of the view, pointing at the target. Desktop: locked to the view. VR: lives
+ in the rig (moves with you exactly) with light smoothing on head turns
+ only. Cyan for pickups, amber for drop-offs and rings, red in combat.
+
+
+--------------------------------------------------------------------------------
+ 9. VR IMPLEMENTATION (index.html)
+--------------------------------------------------------------------------------
+
+ Why WebXR and GitHub Pages: the Quest browser supports WebXR, three.js
+ renders into it directly, and Pages provides the HTTPS WebXR requires.
+ Claude artifact pages run in a locked frame that cannot enter VR, which is
+ why the VR build lives on GitHub.
+
+ Performance choices for Quest 2 (dropped frames cause nausea):
+   - No HDR/post-processing (hdrOK forced false), so no bloom
+   - No rain, no wet-street mirror, no car cube-map reflections
+   - Smaller world: radius-1 chunks of 600 m, closer fog, ~3 traffic lanes
+     per road direction instead of 5/6
+   - Fixed foveation on, camera far plane 3000 m
+
+ Rig. The camera sits inside a "rig" group positioned at the car each
+ frame and rotated by vrYaw. Turning pivots around the head (not the car
+ origin) in cockpit/float views and around the car in chase view.
+
+ Controls (vrStep):
+   Left stick ........ fly forward/back/strafe
+   Left trigger ...... boost x2
+   Right stick X ..... smooth turn (squared curve, eased) — was snap turn
+   Right stick Y ..... climb / dive
+   Right trigger ..... fire straight ahead from the car's guns (not where
+                       the hand points; owner preferred this)
+   A ................. cycle time of day
+   B ................. back to menu
+   X ................. light beams on/off
+   Y ................. cycle view: Interior -> Chase -> Float
+   In menus .......... point a controller, pull trigger (pointer line shown)
+ Haptics on firing, hits, kills and bumps.
+
+ Views:
+   Interior  Enclosed cockpit built from boxes: windshield pillars, roof
+             with dome light, door panels to the floor with amber accent
+             strips, floor, firewall, seat with bolsters/headrest, rear
+             bench, rear wall with framed back window. Dash speed screen is
+             a live canvas (km/h, altitude, turbo, hits, scrolling compass)
+             set FLUSH into the front dash panel under the amber light strip
+             (moved there for visibility). Interior brightness follows time
+             of day and lightning.
+   Chase     Third person behind/above the car; clearLine() pulls the camera
+             in when a building is in the way.
+   Float     No car at all: drifting through the city first person, smaller
+             collision radius. (Replaced the earlier canopy-less view.)
+ Aiming ring 45 m ahead of the nose in every view. Race/shift/combat
+ readout is a floating canvas panel; the arrow sits just above it.
+
+
+--------------------------------------------------------------------------------
+ 10. AUDIO
+--------------------------------------------------------------------------------
+
+ All audio is synthesized with Web Audio; there are no sound files. Audio
+ starts after the first click or on entering VR (browser rule).
+
+ SFX: laser zap (saw sweep), explosion (filtered noise), gate chime,
+ countdown beeps, finish fanfare, courier pickup/cash/late, combat wave,
+ hurt, enemy shot, rain hiss, thunder.
+
+ Music (procedural, seeded). seedMusic() picks a minor key, one of six
+ chord progressions, and 88-106 BPM from the seed (seed 2611: D minor,
+ 91 BPM). Layers: detuned saw pads through a moving low-pass, triangle bass,
+ bell notes, all into a generated 4.5 s convolution reverb. A "drive" layer
+ (16th-note arpeggio, soft kick, offbeat hats) fades in during Races,
+ Courier and Combat. Scheduled with a look-ahead timer; never loops.
+ Volume: Music volume slider (desktop, default 60%), VR menu cycles
+ High/Medium/Low/Off, M toggles on desktop. Levels were checked by offline
+ rendering: ~-28 dB RMS ambient, peaks well below clipping.
+
+ 3D sound (HRTF). The Web Audio listener follows the camera (the headset in
+ VR). Pieces:
+   - 5 traffic voices assigned to the nearest cars (recomputed with the GPU
+     formula every 0.12 s, extrapolated between scans), noise + engine hum,
+     doppler on pitch/filter; flying cars whine, street cars rumble
+   - lasers from the left/right guns, explosions where they happen
+   - each combat drone hums from its position; enemy bolts "zip" when they
+     pass within 12 m of your head
+   - a siren travels along a road somewhere every 25-60 s
+   - rain drumming on the cockpit roof with spatial droplets (desktop
+     cockpit view while raining; VR has no rain yet)
+ Measured: tone 6 m right ~5 dB louder in the right ear, balanced behind,
+ ~20 dB quieter at 60 m than at 6 m.
+
+
+--------------------------------------------------------------------------------
+ 11. SAVED SETTINGS (localStorage, per browser)
+--------------------------------------------------------------------------------
+
+ seedcity.best.<seed>.<course>   race best times
+ seedcity.courier.<seed>         best courier shift
+ seedcity.combat.<seed>          best combat score
+ seedcity.music                  on/off
+ seedcity.musicvol               0..1
+ seedcity.glow                   0..1   (desktop)
+ seedcity.fog                    0..1   (desktop)
+
+ Headset and PC keep separate records and settings.
+
+
+--------------------------------------------------------------------------------
+ 12. DESKTOP CONTROLS
+--------------------------------------------------------------------------------
+
+ 1/2/3/4 camera (Street/Drone/Sky/Fly)   W A S D fly   E/Q up/down
+ Shift boost   drag or arrows steer   Space fire (pause outside Fly)
+ P pause   C chase/cockpit   R rain   N new city   M music   Esc menu
+ Panel: seed, camera, fly view, sound, time of day, weather, lighting
+ toggles (bloom, beams, reflections), traffic, flight speed, music volume,
+ fog, glow size.
+
+
+--------------------------------------------------------------------------------
+ 13. HOW THINGS WERE TESTED (useful to repeat)
+--------------------------------------------------------------------------------
+
+ There was no GPU or headset in the build environment, so:
+   - Headless Chromium + SwiftShader (software WebGL) ran the real pages.
+   - three.js r128 was fetched by sparse-cloning mrdoob/three.js at tag
+     r128 (CDNs were blocked in the sandbox), and test copies pointed at it.
+   - Each feature was driven through small test hooks (window.__x objects
+     injected into test copies only, never shipped) and checked with
+     screenshots and numbers: ring placement vs building boxes, full race /
+     courier / combat runs, arrow distance at speed, halo brightness around
+     the sun, fog horizon at 0%, music loudness via OfflineAudioContext,
+     left/right ear levels via analysers.
+   - VR was simulated by forcing the frame loop down the VR path and
+     posing the camera; real comfort and feel were judged by the owner on a
+     Quest 2.
+ Quirks found: SwiftShader is slow (20-30 fps), so tests teleport rather
+ than fly; headless Chrome's audio clock runs ~5x faster than real time, so
+ test tones must be long.
+
+
+--------------------------------------------------------------------------------
+ 14. BUGS FIXED / LESSONS (things that bit once)
+--------------------------------------------------------------------------------
+
+ - Half the traffic drove backwards (oncoming lanes mirrored, not rotated).
+   Fixed by rotating 180 degrees per direction in the vertex shader.
+ - On GitHub Pages the "WebGL failed" message showed over a working city:
+   the artifact skeleton supplied [hidden]{display:none!important}, the
+   standalone page did not. Added it to the standalone pages.
+ - The menu/races first existed only in the VR build; the desktop build
+   was patched to match. Keep both files in sync.
+ - Dash speed screen was half buried in the sloped dash top; now flush in
+   the front panel.
+ - Guide arrow: world-placed versions were hidden when looking down; then a
+   smoothed VR version lagged behind when accelerating. Final: overlay
+   arrow parented to the rig, smoothing only for head turns.
+ - Bigger bloom made the sun/moon blow out; solved with the sky alpha tag.
+ - Thinner fog would expose the chunk edge; solved with the far fade.
+ - Menu panel in VR overlapped the dash screen; raised it.
+ - Name clash: a particle buffer shadowed the car "partGeo" helper.
+
+ Owner preferences learned along the way:
+   lasers fire straight ahead, not hand-aimed; smooth turning over snap;
+   ribbon-style landmarks over loud full-skin screens; music a notch quieter;
+   bigger glow but natural sun/moon; less fog; HUD info at the top of view.
+
+
+--------------------------------------------------------------------------------
+ 15. WORKFLOW AND RECOVERY
+--------------------------------------------------------------------------------
+
+ Every change was committed with a descriptive message and pushed to main;
+ Pages redeploys in 1-2 minutes. To get an old version back:
+   - GitHub > Commits > open a commit > Browse files > file > Raw, or
+   - git revert <commit-id>   (adds an undo commit; history stays intact)
+ Avoid git push --force and git reset --hard.
+
+ Commit history from the session:
+   f0c230e  Add Seed City desktop build
+   f2c5441  Add Seed City VR build for Meta Quest
+   a27dba9  VR: smooth turning and straight-ahead lasers
+   4d30ef0  VR: interior cockpit, chase view, and Y to switch views
+   1b68204  VR cockpit: full cabin and a dash screen that sits on the dash
+   f0d5e8b  VR: replace the open-cockpit view with a carless float view
+   369f96b  Add main menu over the live city and checkpoint races
+   9b89a90  Desktop build: add the main menu and checkpoint races
+   995bc22  Add Courier mode: rooftop deliveries against a shift clock
+   692a090  Move the guide arrow out of the line of sight
+   5067e32  Guide arrow is now part of the view overlay
+   aca9a9f  VR: guide arrow no longer falls behind when accelerating
+   a315954  VR cockpit: speed screen flush in the dash front panel
+   084d9a9  Add a procedural ambient soundtrack grown from the seed
+   bb872a6  Music: lower default level and add a volume control
+   b2090af  Add Combat mode: drone waves that fight back
+   f2b2821  Desktop: bigger bloom, plus a Glow size slider
+   5ae2832  Bloom: keep the sun and moon at their original glow
+   3b682c9  Desktop: lighter default fog, Fog slider, seamless far edge
+   f828f80  Add 3D positional sound
+   (plus the commit that adds this handoff file)
+ Features built before f0c230e (the city, cars, signs, flight, lasers,
+ HDR, reflections, landmarks, rain) were developed in the Claude artifact
+ and arrived in the first commit as a finished whole.
+
+
+--------------------------------------------------------------------------------
+ 16. IDEAS BACKLOG (discussed, not built)
+--------------------------------------------------------------------------------
+
+ - Light rain in VR (fewer streaks, no mirror pass) so the roof drumming
+   works in the headset
+ - Race against your ghost (replay of your best lap)
+ - Share a city by link (seed in the URL, e.g. desktop.html#2611)
+ - Daily city (date-derived seed); owner noted no daily audience, so low
+   priority
+ - Physical VR cockpit: grab a throttle, press dash buttons
+ - Snap-turn option for comfort (the smooth-turn code replaced it; the old
+   version is in commit f2c5441)
+ - Refactor: move shared code into .js modules so both builds load the
+   same source instead of being patched twice
+
+================================================================================
