@@ -179,6 +179,10 @@ details b{color:var(--fg);font-weight:600}
       <label class="lbl" for="speed">Flight speed <output id="speedOut">28 m/s</output></label>
       <input id="speed" type="range" min="0" max="90" value="28">
     </div>
+    <div class="grp">
+      <label class="lbl" for="musicVol">Music volume <output id="musicOut">60%</output></label>
+      <input id="musicVol" type="range" min="0" max="100" value="60">
+    </div>
     <details>
       <summary>How it works</summary>
       <ol>
@@ -1926,7 +1930,7 @@ function menuModel(){
     {id:'combat', label:'Combat', sub:'Coming soon', off:true},
     {id:'courier', label:'Courier', sub: courierSub()},
     {id:'newcity', label:'New city', sub:'Seed ' + SEED, small:true, half:true},
-    {id:'music', label:'Music', sub: musicOn ? 'On' : 'Off', small:true, half:true}]};
+    {id:'music', label:'Music', sub: musicLevelName(), small:true, half:true}]};
 }
 function menuAction(id){
   if (id === 'courier' || id === 'shift'){ startCourier(); return; }
@@ -1934,7 +1938,7 @@ function menuAction(id){
   else if (id === 'races'){ page = 'races'; showMenu(true); }
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
   else if (id === 'newcity'){ newCity(); seedMusic(); showMenu(true); }
-  else if (id === 'music'){ toggleMusic(); showMenu(true); }
+  else if (id === 'music'){ cycleMusic(); showMenu(true); }
   else if (id.startsWith('course')) startRace(parseInt(id.slice(6),10));
   else if (id === 'retry') startRace(lastResult ? lastResult.k : raceK);
   else if (id === 'next') startRace((lastResult ? lastResult.k : raceK)%3 + 1);
@@ -2160,7 +2164,9 @@ function courierUpdate(dt){
 
 /* ---------- procedural score: ambient synth music composed live from the seed ---------- */
 let music = null, musicOn = true;
-const MUSIC_VOL = 0.8;   // master level; the compressor catches the peaks
+const MUSIC_VOL = 0.8;   // level at 100%; the compressor catches the peaks
+let musicVol = 0.6;      // default a notch below full
+try{ const v = parseFloat(localStorage.getItem('seedcity.musicvol')); if (isFinite(v)) musicVol = Math.max(0, Math.min(1, v)); }catch(_){}
 try{ musicOn = localStorage.getItem('seedcity.music') !== 'off'; }catch(_){}
 const mtof = m => 440*Math.pow(2, (m-69)/12);
 const MINOR = [0,2,3,5,7,8,10];
@@ -2261,8 +2267,9 @@ function scheduleMusic(){
   const now = a.currentTime, ahead = now + 0.35;
   if (M.nextChord < now - 1) M.nextChord = now + 0.1;      // the tab was asleep: don't burst through missed chords
   if (M.nextBeat < now - 1) M.nextBeat = now + 0.1;
-  const on = musicOn && soundOn ? 1 : 0;
-  if (on !== M.gainOn){ M.gainOn = on; M.master.gain.setTargetAtTime(on*MUSIC_VOL, now, on ? 2.5 : 0.4); }
+  const on = musicOn && soundOn && musicVol > 0 ? 1 : 0;
+  const lvl = on*MUSIC_VOL*musicVol;
+  if (on !== M.gainOn || lvl !== M.lvl){ M.master.gain.setTargetAtTime(lvl, now, on && !M.gainOn ? 2.5 : 0.25); M.gainOn = on; M.lvl = lvl; }
   const drv = (game === 'race' || game === 'courier') ? 1 : 0;
   if (drv !== M.driveOn){ M.driveOn = drv; M.drive.gain.setTargetAtTime(drv*0.9, now, drv ? 1.2 : 2.0); if (drv) M.driveSince = now; else M.driveOff = now; }
   if (!on) return;
@@ -2271,12 +2278,35 @@ function scheduleMusic(){
   const driveAudible = M.driveOn === 1 || (M.driveOff && now - M.driveOff < 6);
   while (M.nextBeat < ahead){ if (driveAudible) playBeat(M.nextBeat, M.beatI); M.nextBeat += sixteenth; M.beatI++; }
 }
+function saveMusic(){
+  try{ localStorage.setItem('seedcity.music', musicOn ? 'on' : 'off'); localStorage.setItem('seedcity.musicvol', String(musicVol)); }catch(_){}
+  const sl = document.getElementById('musicVol'), out = document.getElementById('musicOut');
+  const pct = musicOn ? Math.round(musicVol*100) : 0;
+  if (sl) sl.value = pct; if (out) out.textContent = pct + '%';
+}
+function setMusicVol(v){
+  musicVol = Math.max(0, Math.min(1, v)); musicOn = musicVol > 0;
+  saveMusic(); audioUnlock(); if (musicOn) startMusic();
+}
 function toggleMusic(){
   musicOn = !musicOn;
-  try{ localStorage.setItem('seedcity.music', musicOn ? 'on' : 'off'); }catch(_){}
-  audioUnlock();
+  if (musicOn && musicVol <= 0) musicVol = 0.6;
+  saveMusic(); audioUnlock();
   if (musicOn) startMusic();
 }
+// VR has no panel, so the menu item steps through levels: High, Medium, Low, Off
+const MUSIC_LEVELS = [[1.0,'High'],[0.6,'Medium'],[0.3,'Low']];
+function musicLevelName(){ if (!musicOn || musicVol <= 0) return 'Off'; const l = MUSIC_LEVELS.find(q => musicVol >= q[0]-0.15); return l ? l[1] : 'Low'; }
+function cycleMusic(){
+  const name = musicLevelName();
+  if (name === 'Off') setMusicVol(1.0);
+  else if (name === 'High') setMusicVol(0.6);
+  else if (name === 'Medium') setMusicVol(0.3);
+  else { musicOn = false; saveMusic(); }
+}
+const musicSlider = document.getElementById('musicVol');
+if (musicSlider) musicSlider.addEventListener('input', e => setMusicVol(e.target.value/100));
+saveMusic();
 window.addEventListener('keydown', e => { if ((e.key === 'm' || e.key === 'M') && e.target.tagName !== 'INPUT'){ toggleMusic(); if (game === 'menu') showMenu(true); } });
 
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });

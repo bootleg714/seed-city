@@ -25,7 +25,7 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 ## Music
 
-The soundtrack is composed live from the seed: each city gets its own minor key, chord progression and tempo, with slow detuned synth pads, a soft bass and bell notes in a big reverb. During Races and Courier a driving layer (arpeggio, soft kick, hi-hats) fades in. Toggle it with **Music** in the menu (or **M** on desktop); it also follows the Sound on/off button.
+The soundtrack is composed live from the seed: each city gets its own minor key, chord progression and tempo, with slow detuned synth pads, a soft bass and bell notes in a big reverb. During Races and Courier a driving layer (arpeggio, soft kick, hi-hats) fades in. Set the level with the **Music volume** slider in the controls panel (default 60%). In VR, the **Music** menu item steps through High, Medium, Low and Off. **M** toggles it on desktop, it follows the Sound on/off button, and your level is remembered.
 
 ## VR controls (Quest)
 
