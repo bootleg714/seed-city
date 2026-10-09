@@ -1414,7 +1414,7 @@ function fireBolt(){
   fireSide = -fireSide;
   bolts.push({p, v, life:1.4});
   if (bolts.length > BOLT_MAX) bolts.shift();
-  sfxZap();
+  sfxZap(p);
 }
 // cars live on the GPU, so recompute their positions here with the same formula the shader uses
 function carHit(a,b){
@@ -1457,7 +1457,7 @@ function updateBolts(dt){
       hits++; updateKeys();
       const d = tA.distanceTo(camW);
       if (d < 140){ shake = Math.max(shake, 0.45*(1-d/140)); }
-      sfxBoom(Math.max(0.15, 1-d/400));
+      sfxBoom(sp3 ? 0.9 : Math.max(0.15, 1-d/400), tA);
       bolts.splice(n,1); continue;
     }
     if (t < 1){
@@ -1520,15 +1520,15 @@ function audioUnlock(){
   if (actx && actx.state === 'suspended') actx.resume().then(()=>{ if (musicOn) startMusic(); }).catch(()=>{});
   else if (actx && musicOn) startMusic();
 }
-function sfxZap(){
+function sfxZap(pos){
   if (!soundOn || !actx || actx.state !== 'running') return;
   const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
   o.type = 'sawtooth';
   o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(160, t+0.12);
   g.gain.setValueAtTime(0.045, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.14);
-  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+0.16);
+  o.connect(g); g.connect(spatialDest(pos, 3, 1.4)); o.start(t); o.stop(t+0.16);
 }
-function sfxBoom(vol){
+function sfxBoom(vol, pos){
   if (!soundOn || !actx || actx.state !== 'running') return;
   if (!noiseBuf){
     noiseBuf = actx.createBuffer(1, actx.sampleRate*0.8, actx.sampleRate);
@@ -1538,7 +1538,7 @@ function sfxBoom(vol){
   src.buffer = noiseBuf; f.type = 'lowpass';
   f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(90, t+0.7);
   g.gain.setValueAtTime(0.35*vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.75);
-  src.connect(f); f.connect(g); g.connect(actx.destination); src.start(t); src.stop(t+0.8);
+  src.connect(f); f.connect(g); g.connect(spatialDest(pos, 30, 1.0)); src.start(t); src.stop(t+0.8);
 }
 let longNoise = null, rainSrc = null, rainGainNode = null;
 function getLongNoise(){
@@ -1876,7 +1876,7 @@ function vrStep(dt){
     gunSide = -gunSide;
     bolts.push({p, v: vDir.clone().multiplyScalar(420).add(fly.vel), life:1.4});
     if (bolts.length > BOLT_MAX) bolts.shift();
-    sfxZap(); buzz(Rr.g, 0.25, 25);
+    sfxZap(p); buzz(Rr.g, 0.25, 25);
   }
 }
 const reticle = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 40), new THREE.MeshBasicMaterial({color:0xffb45e, transparent:true, opacity:0.55, side:THREE.DoubleSide, depthWrite:false}));
@@ -2599,7 +2599,13 @@ const eboltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), mk(BOLT_
 eboltMesh.count = 0; eboltMesh.frustumCulled = false; scene.add(eboltMesh);
 const cbV1 = new THREE.Vector3(), cbV2 = new THREE.Vector3(), cbM = new THREE.Matrix4(), cbQ = new THREE.Quaternion(), cbS = new THREE.Vector3(0.3,0.3,5), cbZ = new THREE.Vector3(0,0,1);
 
-const sfxEnemy = () => tone(420, 0.2, 'sawtooth', 0.035, 140);
+function sfxEnemy(pos){
+  if (!soundOn || !actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(140, t+0.2);
+  g.gain.setValueAtTime(sp3 ? 0.12 : 0.035, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.2);
+  o.connect(g); g.connect(spatialDest(pos, 8, 1.1)); o.start(t); o.stop(t+0.22);
+}
 const sfxHurt = () => { tone(140, 0.25, 'square', 0.06, 70); tone(900, 0.08, 'sawtooth', 0.03, 300); };
 const sfxWave = () => { tone(392,0.2,'triangle',0.07,0,0); tone(523,0.2,'triangle',0.07,0,0.18); tone(784,0.45,'triangle',0.07,0,0.36); };
 function cbBuzz(v, ms){ if (typeof pad === 'function'){ const l = pad('left'), r = pad('right'); if (l) buzz(l.g, v, ms); if (r) buzz(r.g, v, ms); } }
@@ -2666,7 +2672,7 @@ function killDrone(d){
   d.active = false; d.g.visible = false;
   burst(d.pos, 160, 30, true);
   camera.getWorldPosition(cbV1); const dist = d.pos.distanceTo(cbV1);
-  sfxBoom(Math.max(0.2, 1 - dist/400));
+  sfxBoom(sp3 ? 0.9 : Math.max(0.2, 1 - dist/400), d.pos);
   cmb.kills++; cmb.left--; cmb.score += 100*cmb.wave; hits++; updateKeys();
   cbBuzz(0.5, 60);
 }
@@ -2708,7 +2714,7 @@ function combatUpdate(dt){
         cbV2.x += (Math.random()-0.5)*0.05; cbV2.y += (Math.random()-0.5)*0.05; cbV2.z += (Math.random()-0.5)*0.05; cbV2.normalize();
         ebolts.push({p: d.pos.clone(), v: cbV2.clone().multiplyScalar(EB_SPEED), life:3});
         if (ebolts.length > EB_MAX) ebolts.shift();
-        if (dist < 120) sfxEnemy();
+        if (dist < 140) sfxEnemy(d.pos);
       }
     }
   }
@@ -2746,6 +2752,195 @@ function combatUpdate(dt){
   const presenting = renderer.xr.isPresenting;
   if (presenting){ raceHudMesh.visible = true; drawRaceHud(head, sub); $('#raceHud').hidden = true; }
   else { const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>'; }
+}
+
+/* ---------- 3D sound: positional traffic, sirens, lasers, explosions, drones and rain on the roof ---------- */
+let sp3 = null;
+const s3p = new THREE.Vector3(), s3f = new THREE.Vector3(), s3u = new THREE.Vector3(), s3r = new THREE.Vector3();
+const s3q = new THREE.Quaternion(), s3d = new THREE.Vector3(), s3w = new THREE.Vector3();
+function setPos(p, x, y, z, smooth){
+  if (p.positionX){
+    if (smooth){ const t = actx.currentTime; p.positionX.setTargetAtTime(x,t,0.03); p.positionY.setTargetAtTime(y,t,0.03); p.positionZ.setTargetAtTime(z,t,0.03); }
+    else { p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; }
+  } else p.setPosition(x, y, z);
+}
+function mkPanner(pos, ref, roll){
+  const p = actx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+  p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 5000;
+  if (pos) setPos(p, pos.x, pos.y, pos.z, false);
+  return p;
+}
+// one-shot sounds send their output here: a panner at the sound's position once 3D sound is running
+function spatialDest(pos, ref, roll){
+  if (!pos || !sp3) return actx.destination;
+  const p = mkPanner(pos, ref || 6, roll || 1.1); p.connect(sp3.bus); return p;
+}
+function noiseBurst(t, dur, f0, f1, q, vol, dest){
+  const s = actx.createBufferSource(); s.buffer = getLongNoise();
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q;
+  f.frequency.setValueAtTime(f0, t); if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t+dur);
+  const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()*2.5); s.stop(t+dur+0.02);
+}
+function sfxZip(pos){ noiseBurst(actx.currentTime, 0.28, 3600, 700, 2.5, 0.5, spatialDest(pos, 3, 1.3)); }
+
+function initSpatial(){
+  const bus = actx.createGain(); bus.gain.value = 1; bus.connect(actx.destination);
+  sp3 = {bus, voices:[], drones:[], scanT:0, siren:null, sirenT: 10 + Math.random()*15, roof:null, tick:0};
+  const noise = getLongNoise();
+  for (let i=0;i<5;i++){
+    const src = actx.createBufferSource(); src.buffer = noise; src.loop = true;
+    const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.1;
+    const hum = actx.createOscillator(); hum.type = 'sawtooth';
+    const humF = actx.createBiquadFilter(); humF.type = 'lowpass'; humF.frequency.value = 280;
+    const humG = actx.createGain(); humG.gain.value = 0.22;
+    const g = actx.createGain(); g.gain.value = 0;
+    const pan = mkPanner(null, 4, 1.3);
+    src.connect(bp); bp.connect(g); hum.connect(humF); humF.connect(humG); humG.connect(g); g.connect(pan); pan.connect(bus);
+    src.start(0, Math.random()*2.5); hum.start();
+    sp3.voices.push({src, bp, hum, g, pan, key:null, freeAt:-9, pos:new THREE.Vector3(), vel:new THREE.Vector3(), kind:0, f0:400, h0:60, fresh:false});
+  }
+}
+// the nearest cars, worked out with the same formula the GPU uses to draw them
+function scanCars(){
+  const t = U.uTime.value, traffic = U.uTraffic.value, out = [];
+  const cx = Math.floor(s3p.x/CL), cz = Math.floor(s3p.z/CL);
+  for (let dx=-1; dx<=1; dx++) for (let dz=-1; dz<=1; dz++){
+    const ch = chunks.get((cx+dx)+','+(cz+dz)); if (!ch || !ch.carSets) continue;
+    for (const set of ch.carSets){
+      const L = set.P.La, C = set.P.Ca, S = set.P.Sa;
+      for (let i=0;i<S.length;i++){
+        if (C[i*4+2] > traffic) continue;
+        const dir = C[i*4], spd = L[i*4+3];
+        let along = (L[i*4+2] + dir*spd*t) % CL; if (along < 0) along += CL;
+        const y = C[i*4+1] + (set.kind ? Math.sin(t*0.7 + C[i*4+2]*40)*1.2 : 0);
+        const xr = L[i*4] < 0.5, x = xr ? S[i]+along : L[i*4+1], z = xr ? L[i*4+1] : S[i]+along;
+        const ex = x-s3p.x, ey = y-s3p.y, ez = z-s3p.z, d2 = ex*ex+ey*ey+ez*ez;
+        if (d2 < 75*75) out.push({key: (cx+dx)+','+(cz+dz)+':'+set.kind+':'+i, d2, x, y, z, kind:set.kind, vx: xr ? dir*spd : 0, vz: xr ? 0 : dir*spd});
+      }
+    }
+  }
+  out.sort((a,b) => a.d2-b.d2);
+  return out.slice(0, 10);
+}
+function assignVoices(list){
+  const now = actx.currentTime, keys = new Set(list.map(c => c.key));
+  for (const v of sp3.voices) if (v.key && !keys.has(v.key)){ v.key = null; v.freeAt = now; }
+  for (const c of list){
+    let v = sp3.voices.find(q => q.key === c.key);
+    if (!v){
+      v = sp3.voices.find(q => !q.key && now - q.freeAt > 0.3); if (!v) continue;
+      v.key = c.key; v.kind = c.kind; v.fresh = true;
+      v.f0 = c.kind ? 700 + Math.random()*500 : 240 + Math.random()*160;   // flying cars whine, street cars rumble
+      v.h0 = c.kind ? 105 + Math.random()*40 : 50 + Math.random()*20;
+    }
+    v.pos.set(c.x, c.y, c.z); v.vel.set(c.vx, 0, c.vz);
+  }
+}
+function makeDroneVoice(){
+  const g = actx.createGain(); g.gain.value = 0;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 4;
+  const lfo = actx.createOscillator(), lfoG = actx.createGain(); lfo.frequency.value = 5 + Math.random()*3; lfoG.gain.value = 170;
+  lfo.connect(lfoG); lfoG.connect(f.frequency);
+  const oscs = [72, 74.4].map(fr => { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr*(0.9 + Math.random()*0.2); o.connect(f); o.start(); return o; });
+  const wh = actx.createOscillator(), whG = actx.createGain(); wh.frequency.value = 1300 + Math.random()*300; whG.gain.value = 0.04; wh.connect(whG); whG.connect(g); wh.start();
+  lfo.start(); f.connect(g);
+  const pan = mkPanner(null, 6, 1.2); g.connect(pan); pan.connect(sp3.bus);
+  return {g, pan, live:false};
+}
+function startSiren(){
+  const a = Math.random()*Math.PI*2, r = 140 + Math.random()*120;
+  const along = Math.random() < 0.5, sgn = Math.random() < 0.5 ? -1 : 1;
+  let x = s3p.x + Math.cos(a)*r, z = s3p.z + Math.sin(a)*r;
+  if (along) z = Math.round(z/CELL)*CELL; else x = Math.round(x/CELL)*CELL;     // on a road
+  const pos = new THREE.Vector3(x, 1.5, z), vel = new THREE.Vector3(along ? 24*sgn : 0, 0, along ? 0 : 24*sgn);
+  const osc = actx.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 790;
+  const lfo = actx.createOscillator(), lfoG = actx.createGain(); lfo.frequency.value = 0.32; lfoG.gain.value = 230;
+  lfo.connect(lfoG); lfoG.connect(osc.frequency);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.22, actx.currentTime+1.5);
+  const pan = mkPanner(pos, 25, 1.0);
+  osc.connect(lp); lp.connect(g); g.connect(pan); pan.connect(sp3.bus); osc.start(); lfo.start();
+  sp3.siren = {osc, lfo, g, pan, pos, vel, life:16};
+}
+function audio3dUpdate(dt){
+  if (!actx || actx.state !== 'running') return;
+  if (!sp3) initSpatial();
+  const t = actx.currentTime, mv = paused ? 0 : dt;
+  // the listener is your head: position and facing follow the camera (the headset in VR)
+  camera.getWorldPosition(s3p); camera.getWorldQuaternion(s3q);
+  s3f.set(0,0,-1).applyQuaternion(s3q); s3u.set(0,1,0).applyQuaternion(s3q); s3r.crossVectors(s3f, s3u);
+  const Ls = actx.listener;
+  if (Ls.positionX){
+    Ls.positionX.setTargetAtTime(s3p.x,t,0.015); Ls.positionY.setTargetAtTime(s3p.y,t,0.015); Ls.positionZ.setTargetAtTime(s3p.z,t,0.015);
+    Ls.forwardX.setTargetAtTime(s3f.x,t,0.015); Ls.forwardY.setTargetAtTime(s3f.y,t,0.015); Ls.forwardZ.setTargetAtTime(s3f.z,t,0.015);
+    Ls.upX.setTargetAtTime(s3u.x,t,0.015); Ls.upY.setTargetAtTime(s3u.y,t,0.015); Ls.upZ.setTargetAtTime(s3u.z,t,0.015);
+  } else { Ls.setPosition(s3p.x, s3p.y, s3p.z); Ls.setOrientation(s3f.x, s3f.y, s3f.z, s3u.x, s3u.y, s3u.z); }
+  sp3.bus.gain.setTargetAtTime(soundOn ? 1 : 0, t, 0.1);
+  // passing traffic, with doppler
+  sp3.scanT -= dt;
+  if (sp3.scanT <= 0){ sp3.scanT = 0.12; assignVoices(scanCars()); }
+  for (const v of sp3.voices){
+    if (!v.key){ v.g.gain.setTargetAtTime(0, t, 0.06); continue; }
+    v.pos.addScaledVector(v.vel, mv);
+    setPos(v.pan, v.pos.x, v.pos.y, v.pos.z, !v.fresh);
+    s3d.copy(s3p).sub(v.pos); const dist = s3d.length() || 1;
+    const vr = Math.max(-120, Math.min(120, v.vel.dot(s3d)/dist)), dop = 343/(343 - vr);
+    v.src.playbackRate.setTargetAtTime(dop, t, 0.05);
+    v.bp.frequency.setTargetAtTime(v.f0*dop, t, 0.05);
+    v.hum.frequency.setTargetAtTime(v.h0*dop, t, 0.05);
+    v.g.gain.setTargetAtTime(v.kind ? 0.55 : 0.4, t, v.fresh ? 0.08 : 0.15);
+    v.fresh = false;
+  }
+  // drones hum from where they are; near-miss bolts zip past your head
+  if (typeof drones !== 'undefined'){
+    for (let i=0;i<drones.length;i++){
+      const d = drones[i]; let dv = sp3.drones[i];
+      if (d.active && !dv) dv = sp3.drones[i] = makeDroneVoice();
+      if (!dv) continue;
+      if (d.active){ setPos(dv.pan, d.pos.x, d.pos.y, d.pos.z, dv.live); dv.live = true; dv.g.gain.setTargetAtTime(0.16, t, 0.2); }
+      else { dv.g.gain.setTargetAtTime(0, t, 0.05); dv.live = false; }
+    }
+  }
+  if (typeof ebolts !== 'undefined') for (const e of ebolts){ if (!e.zip && e.p.distanceTo(s3p) < 12){ e.zip = true; sfxZip(e.p); } }
+  // a siren now and then, somewhere out in the city
+  sp3.sirenT -= mv;
+  if (!sp3.siren && sp3.sirenT <= 0) startSiren();
+  if (sp3.siren){
+    const s = sp3.siren; s.life -= mv; s.pos.addScaledVector(s.vel, mv);
+    setPos(s.pan, s.pos.x, s.pos.y, s.pos.z, true);
+    s3d.copy(s3p).sub(s.pos); const dist = s3d.length() || 1, vr = s.vel.dot(s3d)/dist;
+    s.osc.detune.setTargetAtTime(1200*Math.log2(343/(343 - vr)), t, 0.1);
+    if (s.life <= 0){
+      s.g.gain.setTargetAtTime(0.0001, t, 0.6); const S = s;
+      setTimeout(() => { try{ S.osc.stop(); S.lfo.stop(); }catch(_){} }, 3000);
+      sp3.siren = null; sp3.sirenT = 25 + Math.random()*35;
+    }
+  }
+  // rain drumming on the roof while you're inside the car
+  const inCab = renderer.xr.isPresenting ? (typeof vrView !== 'undefined' && vrView === 'interior') : (mode === 'fly' && view === 'cockpit');
+  const roofAmt = inCab ? U.uRain.value : 0;
+  if (roofAmt > 0.02 && !sp3.roof){
+    const s = actx.createBufferSource(); s.buffer = getLongNoise(); s.loop = true;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650;
+    const g = actx.createGain(); g.gain.value = 0;
+    const pan = mkPanner(null, 1, 1);
+    s.connect(lp); lp.connect(g); g.connect(pan); pan.connect(sp3.bus); s.start(0, Math.random()*2.5);
+    sp3.roof = {g, pan};
+  }
+  if (sp3.roof){
+    s3w.copy(s3p).addScaledVector(s3u, 0.55);
+    setPos(sp3.roof.pan, s3w.x, s3w.y, s3w.z, true);
+    sp3.roof.g.gain.setTargetAtTime(roofAmt*0.45, t, 0.3);
+    if (roofAmt > 0.05){
+      sp3.tick -= dt;
+      while (sp3.tick <= 0){
+        sp3.tick += (0.4 + Math.random()*1.2)/(28*roofAmt);
+        s3w.copy(s3p).addScaledVector(s3u, 0.55).addScaledVector(s3r, (Math.random()-0.5)*1.4).addScaledVector(s3f, (Math.random()-0.5)*1.6);
+        noiseBurst(t + Math.random()*0.03, 0.035, 1500 + Math.random()*2500, 1500 + Math.random()*2500, 3, 0.05 + Math.random()*0.12, spatialDest(s3w, 1, 1));
+      }
+    }
+  }
 }
 
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });
@@ -2843,6 +3038,7 @@ function frame(now){
   camera.rotation.z = roll - Math.cos(simT*0.23)*0.02;
   }
   raceUpdate(dt);
+  audio3dUpdate(dt);
   if (shake > 0.001){
     const t = now*0.06;
     camera.rotation.x += Math.sin(t*1.7)*shake*0.05;

@@ -27,6 +27,10 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 The soundtrack is composed live from the seed: each city gets its own minor key, chord progression and tempo, with slow detuned synth pads, a soft bass and bell notes in a big reverb. During Races and Courier a driving layer (arpeggio, soft kick, hi-hats) fades in. Set the level with the **Music volume** slider in the controls panel (default 60%). In VR, the **Music** menu item steps through High, Medium, Low and Off. **M** toggles it on desktop, it follows the Sound on/off button, and your level is remembered.
 
+## 3D sound
+
+Sound is positional (HRTF), so it comes from where things are and follows your head in VR (use headphones on desktop). The nearest cars swoosh past with doppler pitch, lasers fire from the left and right guns, explosions come from where they happen, combat drones hum from their own positions, near-miss enemy bolts zip past your head, sirens occasionally wail by out in the city, and in the cockpit rain drums on the roof above you.
+
 ## VR controls (Quest)
 
 - **Left stick:** fly forward, back and sideways
