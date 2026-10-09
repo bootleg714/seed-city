@@ -1898,8 +1898,8 @@ function strut(a,b,t,mat){
   m.frustumCulled = false; cockpit.add(m); return m;
 }
 cbox(1.7,0.22,0.55, 0,-0.5,-0.78, dashM, -0.18);     // slanted dash top
-cbox(1.7,0.4,0.2, 0,-0.72,-0.62, leatherM);          // lower dash face
-cbox(1.72,0.015,0.02, 0,-0.39,-0.52, stripM);         // light strip along the dash edge
+cbox(1.7,0.52,0.2, 0,-0.66,-0.58, leatherM);         // front dash panel, up to the light strip
+cbox(1.72,0.015,0.02, 0,-0.395,-0.475, stripM);       // light strip along the top edge of the front panel
 cbox(0.34,0.3,0.7, 0,-0.85,-0.1, dashM);              // centre console
 strut([-0.8,-0.4,-0.95], [-0.55,0.42,-0.3], 0.07, frameM);   // windshield pillars
 strut([ 0.8,-0.4,-0.95], [ 0.55,0.42,-0.3], 0.07, frameM);
@@ -1936,12 +1936,11 @@ const dashCanvas = document.createElement('canvas'); dashCanvas.width = 1024; da
 const dctx = dashCanvas.getContext('2d');
 const dashTex = new THREE.CanvasTexture(dashCanvas);
 const dashScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.72,0.18), new THREE.MeshBasicMaterial({map:dashTex}));
-const dashPod = new THREE.Group();                    // screen sits on a bezel above the sloped dash
-dashPod.position.set(0,-0.26,-0.7); dashPod.rotation.x = -0.35;
-const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.77,0.22,0.04), frameM); bezel.position.z = -0.025; bezel.frustumCulled = false;
-const podStem = new THREE.Mesh(new THREE.BoxGeometry(0.36,0.1,0.06), dashM); podStem.position.set(0,-0.12,-0.05); podStem.frustumCulled = false;
+const dashPod = new THREE.Group();                    // screen set flush into the front panel, just under the light strip
+dashPod.position.set(0,-0.52,-0.468);
+const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.77,0.21,0.012), frameM); bezel.position.z = -0.006; bezel.frustumCulled = false;
 dashScreen.position.z = 0.002; dashScreen.frustumCulled = false;
-dashPod.add(bezel, podStem, dashScreen);
+dashPod.add(bezel, dashScreen);
 cockpit.add(dashPod);
 function drawDash(){
   const W = 1024, H = 256, c = dctx, spd = Math.round(fly.vel.length()*3.6);
@@ -2058,7 +2057,7 @@ function placeArrow(dt){
   if (vr){
     // ride along with the rig so flying never leaves it behind; only head turns are smoothed
     if (arrow.parent !== rig){ rig.add(arrow); arrow.visible = false; }
-    arrowGoal.set(0, 0.3, -1.0).applyQuaternion(camera.quaternion).add(camera.position);   // both in rig space
+    arrowGoal.set(0, 0.44, -1.0).applyQuaternion(camera.quaternion).add(camera.position);   // both in rig space
     if (arrow.visible) arrow.position.lerp(arrowGoal, 1 - Math.exp(-dt*14)); else arrow.position.copy(arrowGoal);
     arrow.scale.setScalar(0.22);
   } else {

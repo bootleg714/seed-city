@@ -1806,7 +1806,7 @@ function placeArrow(dt){
   if (vr){
     // ride along with the rig so flying never leaves it behind; only head turns are smoothed
     if (arrow.parent !== rig){ rig.add(arrow); arrow.visible = false; }
-    arrowGoal.set(0, 0.3, -1.0).applyQuaternion(camera.quaternion).add(camera.position);   // both in rig space
+    arrowGoal.set(0, 0.44, -1.0).applyQuaternion(camera.quaternion).add(camera.position);   // both in rig space
     if (arrow.visible) arrow.position.lerp(arrowGoal, 1 - Math.exp(-dt*14)); else arrow.position.copy(arrowGoal);
     arrow.scale.setScalar(0.22);
   } else {
