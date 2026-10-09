@@ -1794,9 +1794,22 @@ for (let i=0;i<GATE_N;i++){
 }
 const gateDisc = new THREE.Mesh(new THREE.CircleGeometry(GATE_R-0.3, 40), new THREE.MeshBasicMaterial({color:0xffb45e, transparent:true, opacity:0.12, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending}));
 gateDisc.visible = false; gateDisc.frustumCulled = false; scene.add(gateDisc);
-const arrowGeo = new THREE.ConeGeometry(0.22, 0.75, 14); arrowGeo.rotateX(Math.PI/2);
-const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({color:0xffb45e}));
-arrow.visible = false; arrow.frustumCulled = false; scene.add(arrow);
+// guide arrow: a flat 3D arrow that lives in the overlay, upper part of the view, pointing at the target
+const arrowShape = new THREE.Shape([[0,0.5],[0.36,0.04],[0.13,0.04],[0.13,-0.5],[-0.13,-0.5],[-0.13,0.04],[-0.36,0.04]].map(q=>new THREE.Vector2(q[0],q[1])));
+const arrowGeo = new THREE.ExtrudeGeometry(arrowShape, {depth:0.08, bevelEnabled:false});
+arrowGeo.translate(0,0,-0.04); arrowGeo.rotateX(Math.PI/2);      // lies flat, tip toward +z so lookAt aims it
+const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({color:0xffb45e, side:THREE.DoubleSide, transparent:true, depthTest:false, depthWrite:false}));
+arrow.visible = false; arrow.frustumCulled = false; arrow.renderOrder = 20; scene.add(arrow);
+const arrowGoal = new THREE.Vector3(), camQ = new THREE.Quaternion();
+function placeArrow(dt){
+  const vr = renderer.xr.isPresenting;
+  camera.getWorldPosition(arrowGoal); camera.getWorldQuaternion(camQ);
+  tB.set(0, vr ? 0.3 : 0.42, vr ? -1.0 : -1.4).applyQuaternion(camQ);
+  arrowGoal.add(tB);
+  if (vr && arrow.visible) arrow.position.lerp(arrowGoal, 1 - Math.exp(-dt*14));   // follows your gaze, lightly smoothed
+  else arrow.position.copy(arrowGoal);
+  arrow.scale.setScalar(vr ? 0.22 : 0.3);
+}
 
 // little synth cues
 function tone(freq, dur, type, vol, slideTo, delay){
@@ -1880,9 +1893,7 @@ function raceUpdate(dt){
   const presenting = renderer.xr.isPresenting;
   const yaw = presenting ? vrYaw : fly.yaw;
   const chaseLike = presenting ? vrView === 'chase' : (mode === 'fly' && view === 'chase');
-  if (chaseLike) arrow.position.set(fly.pos.x, fly.pos.y + 3.4, fly.pos.z);
-  else arrow.position.set(fly.pos.x - Math.sin(yaw)*6.0, fly.pos.y + 2.2, fly.pos.z - Math.cos(yaw)*6.0);   // up near the top of your view, clear of your line of sight
-  arrow.scale.setScalar(chaseLike ? 1 : 1.5);
+  placeArrow(dt);
   arrow.lookAt(ng.p); arrow.visible = true;
   // timer readouts
   const head = race.state === 'count' ? 'GET READY  ' + Math.max(1, Math.ceil(race.count)) : 'GATE ' + Math.min(race.i+1, GATE_N) + '/' + GATE_N + '   ' + fmtT(race.t);
@@ -2117,9 +2128,7 @@ function courierUpdate(dt){
   const presenting = renderer.xr.isPresenting;
   const yaw = presenting ? vrYaw : fly.yaw;
   const chaseLike = presenting ? vrView === 'chase' : (mode === 'fly' && view === 'chase');
-  if (chaseLike) arrow.position.set(fly.pos.x, fly.pos.y + 3.4, fly.pos.z);
-  else arrow.position.set(fly.pos.x - Math.sin(yaw)*6.0, fly.pos.y + 2.2, fly.pos.z - Math.cos(yaw)*6.0);   // up near the top of your view, clear of your line of sight
-  arrow.scale.setScalar(chaseLike ? 1 : 1.5);
+  placeArrow(dt);
   tA.set(tgt.x, tgt.y + 2, tgt.z); arrow.lookAt(tA); arrow.visible = true;
   arrow.material.color.setHex(cour.state === 'pickup' ? 0x4fd8ff : 0xffb45e);
   // readout
