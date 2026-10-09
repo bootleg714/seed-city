@@ -1861,6 +1861,7 @@ const cockpit = new THREE.Group(); cockpit.visible = false; rig.add(cockpit);
 const tint = [];
 const cmat = (r,g,b)=>{ const m = new THREE.MeshBasicMaterial({color:new THREE.Color(r,g,b)}); tint.push([m,[r,g,b]]); return m; };
 const frameM = cmat(0.05,0.05,0.06), dashM = cmat(0.085,0.08,0.085), leatherM = cmat(0.22,0.12,0.075);
+const seatM = cmat(0.13,0.075,0.05), headM = cmat(0.1,0.1,0.11), floorM = cmat(0.04,0.04,0.045);
 const stripM = new THREE.MeshBasicMaterial({color:0xffb45e});
 function cbox(w,h,d,x,y,z,mat,rx){
   const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
@@ -1880,21 +1881,45 @@ cbox(0.34,0.3,0.7, 0,-0.85,-0.1, dashM);              // centre console
 strut([-0.8,-0.4,-0.95], [-0.55,0.42,-0.3], 0.07, frameM);   // windshield pillars
 strut([ 0.8,-0.4,-0.95], [ 0.55,0.42,-0.3], 0.07, frameM);
 cbox(1.2,0.08,0.12, 0,0.44,-0.3, frameM);             // header above the windshield
-cbox(1.4,0.04,1.3, 0,0.5,0.35, frameM);               // roof
+cbox(1.76,0.04,1.95, 0,0.5,0.63, headM);               // roof headliner, front pillars to rear window
+cbox(0.5,0.012,0.04, 0,0.475,0.55, stripM);             // dome light
+// floor, footwell and firewall
+cbox(1.74,0.05,2.65, 0,-1.08,0.3, floorM);
+cbox(1.7,0.32,0.05, 0,-0.92,-1.0, dashM);
+// your seat: cushion, back and headrest behind you
+cbox(0.6,0.14,0.6, 0,-0.8,0.02, seatM);
+cbox(0.54,0.6,0.13, 0,-0.5,0.4, seatM, 0.12);
+cbox(0.28,0.14,0.1, 0,-0.1,0.44, seatM, 0.12);
+cbox(0.08,0.32,0.5, -0.36,-0.68,0.05, seatM);            // seat bolsters
+cbox(0.08,0.32,0.5,  0.36,-0.68,0.05, seatM);
+// rear bench, parcel shelf and rear wall with a framed back window
+cbox(1.55,0.15,0.5, 0,-0.8,1.2, seatM);
+cbox(1.55,0.6,0.13, 0,-0.45,1.48, seatM, 0.12);
+cbox(1.7,0.04,0.35, 0,-0.12,1.62, dashM);
+cbox(1.74,1.0,0.05, 0,-0.6,1.8, dashM);
+cbox(1.4,0.08,0.1, 0,0.44,1.62, frameM);                  // rear window header
+cbox(1.72,0.06,0.08, 0,-0.1,1.78, frameM);                // rear window sill
 for (const sx of [-1,1]){
-  cbox(0.08,0.06,1.6, sx*0.82,-0.33,-0.05, leatherM); // window sill
-  cbox(0.05,0.55,1.6, sx*0.86,-0.62,-0.05, dashM);    // door panel
-  strut([sx*0.82,-0.3,0.7], [sx*0.62,0.48,0.62], 0.08, frameM);
-  cbox(0.012,0.012,1.5, sx*0.8,-0.295,-0.05, stripM); // door accent light
+  cbox(0.08,0.06,2.6, sx*0.82,-0.33,0.45, leatherM);  // window sill, front to back
+  cbox(0.05,0.75,2.6, sx*0.86,-0.72,0.45, dashM);     // front and rear door panels down to the floor
+  strut([sx*0.82,-0.3,0.7], [sx*0.62,0.48,0.62], 0.08, frameM);   // B-pillar
+  strut([sx*0.84,-0.3,1.75], [sx*0.66,0.48,1.6], 0.1, frameM);    // C-pillar
+  cbox(0.012,0.012,2.4, sx*0.8,-0.295,0.4, stripM);   // door accent light
+  cbox(0.03,0.42,0.04, sx*0.84,-0.55,0.7, frameM);    // door seam
 }
 cbox(0.02,0.1,0.02, 0,0.38,-0.36, frameM);            // mirror stem
 cbox(0.3,0.085,0.02, 0,0.32,-0.37, new THREE.MeshBasicMaterial({color:0x1b2230}));
 const dashCanvas = document.createElement('canvas'); dashCanvas.width = 1024; dashCanvas.height = 256;
 const dctx = dashCanvas.getContext('2d');
 const dashTex = new THREE.CanvasTexture(dashCanvas);
-const dashScreen = new THREE.Mesh(new THREE.PlaneGeometry(1.0,0.25), new THREE.MeshBasicMaterial({map:dashTex}));
-dashScreen.position.set(0,-0.36,-0.6); dashScreen.rotation.x = -0.55; dashScreen.frustumCulled = false;
-cockpit.add(dashScreen);
+const dashScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.72,0.18), new THREE.MeshBasicMaterial({map:dashTex}));
+const dashPod = new THREE.Group();                    // screen sits on a bezel above the sloped dash
+dashPod.position.set(0,-0.26,-0.7); dashPod.rotation.x = -0.35;
+const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.77,0.22,0.04), frameM); bezel.position.z = -0.025; bezel.frustumCulled = false;
+const podStem = new THREE.Mesh(new THREE.BoxGeometry(0.36,0.1,0.06), dashM); podStem.position.set(0,-0.12,-0.05); podStem.frustumCulled = false;
+dashScreen.position.z = 0.002; dashScreen.frustumCulled = false;
+dashPod.add(bezel, podStem, dashScreen);
+cockpit.add(dashPod);
 function drawDash(){
   const W = 1024, H = 256, c = dctx, spd = Math.round(fly.vel.length()*3.6);
   c.fillStyle = '#04060a'; c.fillRect(0,0,W,H);
