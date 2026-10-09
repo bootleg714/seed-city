@@ -20,7 +20,8 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 - **Free Flight:** fly anywhere.
 - **Races:** each seed grows three checkpoint courses that follow the streets. Fly through the rings in order: the next ring is amber, the one after is cyan, and the green ring is the finish. A floating arrow points the way, a 3-2-1 countdown starts you off, and your best time for each course is saved on the device (per seed).
-- **Combat** and **Courier** are coming soon.
+- **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
+- **Combat** is coming soon.
 
 ## VR controls (Quest)
 

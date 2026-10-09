@@ -1829,7 +1829,7 @@ function startFree(){
 }
 function hideRace(){ gateMeshes.forEach(m=>m.visible = false); gateDisc.visible = false; arrow.visible = false; $('#raceHud').hidden = true; raceHudMesh.visible = false; }
 function enterMenu(p){
-  game = 'menu'; page = p || 'main'; race = null; hideRace();
+  game = 'menu'; page = p || 'main'; race = null; hideRace(); courierHide(); cour = null;
   if (renderer.xr.isPresenting){ fly.pos.y = Math.max(fly.pos.y, 70); fly.vel.set(0,0,0); }
   else if (mode === 'fly') setMode('drone');
   showMenu(true);
@@ -1842,6 +1842,7 @@ function finishRace(){
   enterMenu('results');
 }
 function raceUpdate(dt){
+  if (game === 'courier'){ courierUpdate(dt); return; }
   if (game !== 'race' || !race) return;
   if (race.state === 'count'){
     race.count -= dt;
@@ -1892,6 +1893,9 @@ function raceUpdate(dt){
 
 /* menu: one description, drawn as an HTML overlay on a flat screen and as a floating panel in VR */
 function menuModel(){
+  if (page === 'cresults' && lastShift) return {title:'SHIFT OVER', big: '\u00a2 ' + lastShift.credits.toLocaleString('en-US'), rec: lastShift.rec ? 'NEW RECORD' : 'BEST \u00a2 ' + lastShift.best.toLocaleString('en-US'),
+    sub: lastShift.done + (lastShift.done === 1 ? ' delivery' : ' deliveries') + ' on seed ' + SEED,
+    items:[{id:'shift', label:'Work another shift', sub:'Fresh pickups, same city'}, {id:'races', label:'Races', sub:'Checkpoint courses'}, {id:'menu', label:'Main menu', small:true}]};
   if (page === 'races') return {title:'RACES', sub:'Seed ' + SEED + ' grows these courses. Fly through the rings in order.', items:[1,2,3].map(k=>{ const b = getBest(k); return {id:'course'+k, label:'Course ' + k, sub: b !== null ? 'Best ' + fmtT(b) : 'No time yet'}; }).concat([{id:'back', label:'Back', small:true}])};
   if (page === 'results' && lastResult) return {title:'FINISH', big: fmtT(lastResult.t), rec: lastResult.rec ? 'NEW RECORD' : 'BEST ' + fmtT(lastResult.best), sub:'Course ' + lastResult.k + ' on seed ' + SEED,
     items:[{id:'retry', label:'Race again', sub:'Same course'}, {id:'next', label:'Next course', sub:'Course ' + (lastResult.k%3+1)}, {id:'menu', label:'Main menu', small:true}]};
@@ -1899,10 +1903,11 @@ function menuModel(){
     {id:'free', label:'Free Flight', sub:'Fly anywhere. No rules.'},
     {id:'races', label:'Races', sub:'Checkpoint courses grown from the seed'},
     {id:'combat', label:'Combat', sub:'Coming soon', off:true},
-    {id:'courier', label:'Courier', sub:'Coming soon', off:true},
+    {id:'courier', label:'Courier', sub: courierSub()},
     {id:'newcity', label:'New city', sub:'Seed ' + SEED + '. Best times are kept per seed.', small:true}]};
 }
 function menuAction(id){
+  if (id === 'courier' || id === 'shift'){ startCourier(); return; }
   if (id === 'free') startFree();
   else if (id === 'races'){ page = 'races'; showMenu(true); }
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
@@ -2007,6 +2012,126 @@ function drawRaceHud(head, sub){
   c.fillStyle = '#a69d93'; c.font = '600 26px monospace'; c.fillText(sub, 384, 128);
   hudTex.needsUpdate = true;
 }
+/* ---------- courier: rooftop pickups and drop-offs against a shift clock ---------- */
+let cour = null, lastShift = null;
+function courBestKey(){ return 'seedcity.courier.' + SEED; }
+function getCourBest(){ try{ const v = parseInt(localStorage.getItem(courBestKey()), 10); return isFinite(v) ? v : null; }catch(_){ return null; } }
+function setCourBest(v){ try{ localStorage.setItem(courBestKey(), String(v)); }catch(_){} }
+function courierSub(){ const b = getCourBest(); return 'Rooftop deliveries against the clock' + (b !== null ? '. Best ¢ ' + b.toLocaleString('en-US') : ''); }
+
+// ask the generator which building stands on a block, then use the top of its highest box as the pad
+const roofScratch = {boxes:[], beacons:[], rings:[], signs:[], beams:[], rooms:0, towers:0, landmarks:0};
+function findRoof(from, dmin, dmax){
+  for (let tries=0; tries<60; tries++){
+    const a = Math.random()*Math.PI*2, d = dmin + Math.random()*(dmax-dmin);
+    const ix = Math.floor((from.x + Math.sin(a)*d)/CELL), iz = Math.floor((from.z + Math.cos(a)*d)/CELL);
+    for (const k in roofScratch) if (Array.isArray(roofScratch[k])) roofScratch[k].length = 0;
+    genLot(ix, iz, roofScratch);
+    const B = roofScratch.boxes; let top = null;
+    for (let o=0; o<B.length; o+=8){
+      if (B[o+7] > 1.5 && B[o+7] < 2.5) continue;              // skip antennas
+      const y = B[o+1] + B[o+4];
+      if (!top || y > top.y) top = {x:B[o], y, z:B[o+2], w:B[o+3], d:B[o+5]};
+    }
+    if (top && top.y > 18 && top.y < 170 && Math.min(top.w, top.d) >= 11){
+      top.r = Math.max(4, Math.min(8, Math.min(top.w, top.d)*0.4));
+      return top;
+    }
+  }
+  const ix = Math.round(from.x/CELL + dmin/CELL), iz = Math.round(from.z/CELL);   // fallback: a street corner
+  return {x:ix*CELL, y:0.5, z:iz*CELL, w:10, d:10, r:4.5};
+}
+
+const COL_V = `varying float vH; varying vec3 vN; varying vec3 vWorld;
+void main(){ vH = position.y + 0.5; vec4 wp = modelMatrix*vec4(position,1.0); vWorld = wp.xyz; vN = normalize(mat3(modelMatrix)*vec3(position.x,0.0,position.z)); gl_Position = projectionMatrix*viewMatrix*wp; }`;
+const COL_F = COMMON + `uniform vec3 uCol; varying float vH; varying vec3 vN; varying vec3 vWorld;
+void main(){ vec3 v = normalize(cameraPosition - vWorld); float e = abs(dot(normalize(vN), v)); e *= e;
+  float a = pow(1.0 - vH, 1.5)*(0.25 + 0.75*e);
+  gl_FragColor = vec4(uCol*a*0.6, 1.0); }`;
+function makePad(col){
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 8, 56).rotateX(Math.PI/2),
+    new THREE.ShaderMaterial({uniforms:Object.assign({uCol:{value:new THREE.Vector3(col[0],col[1],col[2]).multiplyScalar(1.8)}}, U), vertexShader:GATE_V, fragmentShader:GATE_F}));
+  const colm = new THREE.Mesh(new THREE.CylinderGeometry(1,1,1,24,1,true),
+    new THREE.ShaderMaterial({uniforms:Object.assign({uCol:{value:new THREE.Vector3(col[0],col[1],col[2])}}, U), vertexShader:COL_V, fragmentShader:COL_F, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+  ring.frustumCulled = false; colm.frustumCulled = false; ring.visible = false; colm.visible = false;
+  scene.add(ring, colm);
+  return {ring, colm, place(p){ ring.position.set(p.x, p.y+0.3, p.z); ring.scale.setScalar(p.r); colm.position.set(p.x, p.y+200, p.z); colm.scale.set(p.r*0.8, 400, p.r*0.8); ring.visible = colm.visible = true; }, hide(){ ring.visible = colm.visible = false; }};
+}
+const pickPad = makePad([0.3,0.85,1.0]), dropPad = makePad([1.0,0.7,0.25]);
+function courierHide(){ pickPad.hide(); dropPad.hide(); arrow.material.color.setHex(0xffb45e); }
+
+const sfxPick = () => { tone(520,0.12,'triangle',0.08,780); tone(780,0.18,'triangle',0.07,1170,0.1); };
+const sfxCash = () => { tone(1318,0.12,'square',0.05,0,0); tone(1760,0.25,'square',0.05,0,0.09); };
+const sfxLate = () => tone(220, 0.35, 'sawtooth', 0.05, 160);
+
+function startCourier(){
+  const presenting = renderer.xr.isPresenting;
+  if (!presenting){ setMode('fly'); chaseInit = false; }
+  else { fly.vel.set(0,0,0); }
+  cour = {shift:90, credits:0, done:0, state:'pickup', drop:null, bonus:0, hold:0, bumps0:bumps, msg:'', msgT:0, tick:11};
+  cour.pad = findRoof(fly.pos, 250, 600);
+  pickPad.place(cour.pad); dropPad.hide();
+  game = 'courier'; showMenu(false); audioUnlock();
+}
+function endShift(){
+  const c = cour.credits, prev = getCourBest(), rec = prev === null || c > prev;
+  if (rec) setCourBest(c);
+  lastShift = {credits:c, done:cour.done, best: rec ? c : prev, rec};
+  sfxFinish();
+  enterMenu('cresults');
+}
+function courMsg(msg){ cour.msg = msg; cour.msgT = 2.2; }
+function courierUpdate(dt){
+  if (!cour) return;
+  cour.shift -= dt; cour.msgT -= dt;
+  if (cour.shift <= 10 && Math.ceil(cour.shift) < cour.tick && cour.shift > 0){ cour.tick = Math.ceil(cour.shift); tone(990, 0.06, 'square', 0.04); }
+  if (cour.shift <= 0){ endShift(); return; }
+  if (cour.state === 'deliver'){
+    cour.bonus -= dt;
+    if (bumps > cour.bumps0){ cour.credits = Math.max(0, cour.credits - 5*(bumps - cour.bumps0)); courMsg('CAREFUL WITH THE CARGO  -¢5'); }
+  }
+  cour.bumps0 = bumps;
+  const tgt = cour.state === 'pickup' ? cour.pad : cour.drop;
+  // landing: over the pad, just above the roof, and slow enough to hold steady for a moment
+  const dx = fly.pos.x - tgt.x, dz = fly.pos.z - tgt.z, horiz = Math.hypot(dx, dz), above = fly.pos.y - tgt.y;
+  const onPad = horiz < tgt.r + 1.5 && above > 0.3 && above < 10 && fly.vel.length() < 10;
+  cour.hold = onPad ? cour.hold + dt : 0;
+  if (cour.hold >= 0.6){
+    cour.hold = 0;
+    if (cour.state === 'pickup'){
+      cour.drop = findRoof(cour.pad, 500, 1100);
+      const dist = Math.hypot(cour.drop.x - cour.pad.x, cour.drop.z - cour.pad.z);
+      cour.bonus = dist/22 + 12;
+      cour.state = 'deliver'; pickPad.hide(); dropPad.place(cour.drop);
+      sfxPick(); courMsg('PACKAGE ON BOARD');
+    } else {
+      const pay = cour.bonus > 0 ? 100 + Math.round(cour.bonus*12) : 50;
+      cour.credits += pay; cour.done++; cour.shift += 12;
+      if (cour.bonus > 0){ sfxCash(); courMsg('DELIVERED  +¢' + pay + '  +12s'); } else { sfxLate(); courMsg('LATE  +¢' + pay + '  +12s'); }
+      cour.pad = findRoof(cour.drop, 200, 500);
+      cour.state = 'pickup'; dropPad.hide(); pickPad.place(cour.pad);
+    }
+  }
+  // arrow toward the current pad
+  const presenting = renderer.xr.isPresenting;
+  const yaw = presenting ? vrYaw : fly.yaw;
+  const chaseLike = presenting ? vrView === 'chase' : (mode === 'fly' && view === 'chase');
+  if (chaseLike) arrow.position.set(fly.pos.x, fly.pos.y + 3.4, fly.pos.z);
+  else arrow.position.set(fly.pos.x - Math.sin(yaw)*3.2, fly.pos.y - 0.35, fly.pos.z - Math.cos(yaw)*3.2);
+  tA.set(tgt.x, tgt.y + 2, tgt.z); arrow.lookAt(tA); arrow.visible = true;
+  arrow.material.color.setHex(cour.state === 'pickup' ? 0x4fd8ff : 0xffb45e);
+  // readout
+  const dist = Math.round(Math.hypot(horiz, above));
+  const head = 'SHIFT ' + fmtT(Math.max(0, cour.shift)).slice(0, -2) + '   ¢ ' + cour.credits.toLocaleString('en-US');
+  let sub;
+  if (cour.msgT > 0) sub = cour.msg;
+  else if (onPad) sub = 'HOLD STEADY ' + '▮'.repeat(1 + Math.floor(cour.hold/0.15));
+  else if (cour.state === 'pickup') sub = 'PICK UP  ·  ' + dist + ' m';
+  else sub = 'DELIVER  ·  ' + dist + ' m  ·  ' + (cour.bonus > 0 ? 'BONUS ' + fmtT(cour.bonus) : 'LATE');
+  if (presenting){ raceHudMesh.visible = true; drawRaceHud(head, sub); $('#raceHud').hidden = true; }
+  else { const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>'; }
+}
+
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });
 enterMenu();
 
