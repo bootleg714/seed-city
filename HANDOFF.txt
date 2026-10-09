@@ -227,7 +227,7 @@ the original build session, from the first prototype to 3D sound.
  Esc on desktop). menuModel() describes the current page once; it is drawn
  as an HTML overlay on flat screens and as a canvas texture panel in VR
  (pointer raycast + trigger). Items: Free Flight, Races, Combat, Courier,
- New city, Music.
+ New city, Music, Weather (clear/rain), Time (day/dusk/night).
 
  Races. makeCourse(k) walks the road grid from a seeded intersection: 10
  rings, altitude 14-84 m, turns of 2-4 blocks. 3-2-1 countdown with beeps,
@@ -264,7 +264,11 @@ the original build session, from the first prototype to 3D sound.
 
  Performance choices for Quest 2 (dropped frames cause nausea):
    - No HDR/post-processing (hdrOK forced false), so no bloom
-   - No rain, no wet-street mirror, no car cube-map reflections
+   - Light rain only: 7k streaks in a 60x40x60 m box (desktop 22k in
+     90x60x90), no wet-street mirror pass. The ground shader fakes the
+     wet look from reflected sky/fog colour, lamp glare and light smears
+     stretched toward the viewer. No car cube-map reflections; the car
+     shader darkens paint and adds a sky-tinted coat instead.
    - Smaller world: radius-1 chunks of 600 m, closer fog, ~3 traffic lanes
      per road direction instead of 5/6
    - Fixed foveation on, camera far plane 3000 m
@@ -295,7 +299,10 @@ the original build session, from the first prototype to 3D sound.
              a live canvas (km/h, altitude, turbo, hits, scrolling compass)
              set FLUSH into the front dash panel under the amber light strip
              (moved there for visibility). Interior brightness follows time
-             of day and lightning.
+             of day and lightning. When it rains, a windshield quad shows
+             beads that crawl down when hovering and stream up the glass
+             with forward speed (uAir, uWsPhase); drops within 1.4 m of
+             the head are faded out (uRainNear) so none fall inside.
    Chase     Third person behind/above the car; clearLine() pulls the camera
              in when a building is in the way.
    Float     No car at all: drifting through the city first person, smaller
@@ -335,7 +342,7 @@ the original build session, from the first prototype to 3D sound.
      pass within 12 m of your head
    - a siren travels along a road somewhere every 25-60 s
    - rain drumming on the cockpit roof with spatial droplets (desktop
-     cockpit view while raining; VR has no rain yet)
+     cockpit view or VR interior view while raining)
  Measured: tone 6 m right ~5 dB louder in the right ear, balanced behind,
  ~20 dB quieter at 60 m than at 6 m.
 
@@ -409,6 +416,9 @@ the original build session, from the first prototype to 3D sound.
  - Thinner fog would expose the chunk edge; solved with the far fade.
  - Menu panel in VR overlapped the dash screen; raised it.
  - Name clash: a particle buffer shadowed the car "partGeo" helper.
+ - VR menu panel's renderOrder/visible/frustumCulled settings had ended up
+   inside a // comment, so they never ran. Fixed when rain arrived in VR
+   (otherwise transparent rain could draw over the menu).
 
  Owner preferences learned along the way:
    lasers fire straight ahead, not hand-aimed; smooth turning over snap;
@@ -457,8 +467,6 @@ the original build session, from the first prototype to 3D sound.
  16. IDEAS BACKLOG (discussed, not built)
 --------------------------------------------------------------------------------
 
- - Light rain in VR (fewer streaks, no mirror pass) so the roof drumming
-   works in the headset
  - Race against your ghost (replay of your best lap)
  - Share a city by link (seed in the URL, e.g. desktop.html#2611)
  - Daily city (date-derived seed); owner noted no daily audience, so low

@@ -44,7 +44,7 @@ Sound is positional (HRTF), so it comes from where things are and follows your h
 
 Hold the Oculus button to recenter if your seat drifts. If smooth turning ever makes you queasy, a snap-turn version is in the commit history.
 
-The VR build trades some effects for frame rate. It has no bloom, rain, or reflections, uses a smaller world with closer fog, and has fewer cars. Dropped frames in a headset cause nausea, not just stutter.
+The VR build trades some effects for frame rate. It has no bloom or mirror reflections (its rain is a lighter version: fewer streaks, a faked wet street, drops on the windshield), uses a smaller world with closer fog, and has fewer cars. Dropped frames in a headset cause nausea, not just stutter.
 
 ## Desktop controls
 

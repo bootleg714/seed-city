@@ -275,7 +275,7 @@ const PRESETS = {
   day:{sunDir:[0.45,0.75,-0.4],sunCol:[1.0,0.95,0.85],sunStrength:1,zenith:[0.22,0.42,0.8],horizon:[0.72,0.8,0.9],fog:[0.68,0.74,0.82],sunFog:[0.95,0.92,0.85],fogDensity:0.0021,wallDark:[0.32,0.33,0.37],wallLight:[0.78,0.72,0.64],skyRefl:[0.5,0.62,0.8],lit:0.06,winBright:0.5,cloud:[0.95,0.95,0.97],stars:0,road:[0.22,0.22,0.23],lot:[0.3,0.3,0.29],walk:[0.5,0.48,0.46],line:[0.9,0.85,0.7],street:[0,0,0],carLights:0.25,bodyLight:1.0,exposure:1.0,neon:0.45,bloom:0.09,beam:0.0}
 };
 const KEYMAP={sunDir:'uSunDir',sunCol:'uSunCol',sunStrength:'uSunStrength',zenith:'uZenith',horizon:'uHorizon',fog:'uFogColor',sunFog:'uSunFogCol',fogDensity:'uFogDensity',wallDark:'uWallDark',wallLight:'uWallLight',skyRefl:'uSkyRefl',lit:'uLit',winBright:'uWinBright',cloud:'uCloud',stars:'uStars',road:'uRoad',lot:'uLot',walk:'uWalk',line:'uLine',street:'uStreet',carLights:'uCarLights',bodyLight:'uBodyLight',exposure:'uExposure',neon:'uNeon',bloom:'uBloom',beam:'uBeam'};
-const U = { uTime:{value:0}, uTraffic:{value:0.75}, uPx:{value:1}, uHDR:{value: hdrOK ? 1 : 0}, uRain:{value:0}, uFlash:{value:0}, tRefl:{value:null}, uRes:{value:new THREE.Vector2(1,1)} };
+const U = { uTime:{value:0}, uTraffic:{value:0.75}, uPx:{value:1}, uHDR:{value: hdrOK ? 1 : 0}, uRain:{value:0}, uRainNear:{value:0.6}, uFlash:{value:0}, tRefl:{value:null}, uRes:{value:new THREE.Vector2(1,1)} };
 for (const k in KEYMAP){
   const v = PRESETS.dusk[k];
   U[KEYMAP[k]] = {value: Array.isArray(v) ? new THREE.Vector3(v[0],v[1],v[2]) : v};
@@ -327,7 +327,7 @@ void main(){
 const GROUND_V = `varying vec3 vWorld; void main(){ vec4 wp = modelMatrix*vec4(position,1.0); vWorld = wp.xyz; gl_Position = projectionMatrix*viewMatrix*wp; }`;
 const GROUND_F = COMMON + `
 uniform vec3 uRoad; uniform vec3 uLot; uniform vec3 uWalk; uniform vec3 uLine; uniform vec3 uStreet;
-uniform sampler2D tRefl; uniform vec2 uRes; uniform float uTime;
+uniform vec2 uRes; uniform float uTime; uniform float uWinBright;
 varying vec3 vWorld;
 float gnoise(vec2 q){ vec2 i=floor(q), f=fract(q); f=f*f*(3.0-2.0*f);
   return mix(mix(hash12(i),hash12(i+vec2(1.0,0.0)),f.x), mix(hash12(i+vec2(0.0,1.0)),hash12(i+vec2(1.0,1.0)),f.x), f.y); }
@@ -337,12 +337,12 @@ void main(){
   bool rv = m.x < 10.0;   // road running along z
   bool rh = m.y < 10.0;   // road running along x
   vec3 col = uLot;
+  float pool = 0.0;
   if(rv || rh){
     col = uRoad;
     vec2 c = abs(m - 5.0);
     if(rv && !rh && c.x < 0.12 && mod(p.y,8.0) < 4.0) col = uLine;
     if(rh && !rv && c.y < 0.12 && mod(p.x,8.0) < 4.0) col = uLine;
-    float pool = 0.0;
     if(rv) pool += exp(-pow(mod(p.y,25.0)-12.5,2.0)/20.0) * smoothstep(1.5,4.8,c.x);
     if(rh) pool += exp(-pow(mod(p.x,25.0)-12.5,2.0)/20.0) * smoothstep(1.5,4.8,c.y);
     col += uStreet*(0.25 + pool*1.6);
@@ -360,11 +360,16 @@ void main(){
     float tt = fract(uTime*1.4 + hash12(cid));
     vec2 dv = f - off; float d = length(dv);
     float ring = exp(-pow((d - tt*0.45)*28.0, 2.0))*(1.0-tt)*(1.0 - smoothstep(25.0,70.0,dist));
-    vec2 suv = gl_FragCoord.xy/uRes;
-    vec2 ruv = vec2(suv.x, 1.0-suv.y) + dv/max(d,1e-3)*ring*0.012;
-    vec3 r = vec3(0.0); float ws = 0.0;
-    for(int i=0;i<7;i++){ float o = float(i)-3.0; float w = exp(-o*o*0.18); r += texture2D(tRefl, ruv + vec2(0.0, o*0.0045)).rgb*w; ws += w; }
-    r /= ws;
+    // VR: no mirror pass. Fake the wet sheen: reflected sky, lamp glare, and city lights smeared toward you
+    vec3 r = fogCol(vec3(-vdir.x, vdir.y, -vdir.z))*1.1;
+    r += uStreet*pool*2.2;
+    vec2 hv = normalize(vdir.xz + 1e-4), hp = vec2(-hv.y, hv.x);
+    float across = dot(p, hp), along = dot(p, hv);
+    float lane = floor(across*0.55);
+    float smear = smoothstep(0.55, 0.95, gnoise(vec2(across*0.55, along*0.012)))*step(0.45, hash12(vec2(lane, 3.7)));
+    vec3 tint = mix(vec3(1.0,0.72,0.42), mix(vec3(0.35,0.75,1.0), vec3(1.0,0.3,0.6), hash12(vec2(lane,9.1))), step(0.6, hash12(vec2(lane,1.3))));
+    r += tint*smear*uWinBright*0.35*smoothstep(15.0, 60.0, dist)*(1.0 - smoothstep(250.0, 600.0, dist));
+    r += ring*vec3(0.5,0.55,0.65)*fogCol(vec3(0.0,1.0,0.0))*2.0;
     col = col*mix(1.0, 0.5, uRain) + r*fres*refl*uRain*0.9 + ring*0.03*uRain;
   }
   col = applyFog(col, vWorld);
@@ -585,6 +590,10 @@ void main(){
   col = mix(col, env(Rb, 0.0)*1.1 + 0.02, bead*0.85);           // each bead is a tiny curved mirror
   col *= 1.0 - 0.25*bead*smoothstep(0.4, 0.9, length(bv));       // with a darker rim
   col = mix(base, col, uEnvAmt);
+  // VR has no cube map: darken the paint, add a sky-tinted clear coat and bright beads instead
+  float noEnv = wet*(1.0 - uEnvAmt);
+  if(vPart < 0.5) col = mix(col, col*0.6 + fogCol(R)*(0.05 + 0.6*fs), noEnv);
+  col += fogCol(Rb)*bead*0.25*(1.0 - uEnvAmt);
 #endif
   col = applyFog(col, vWorld);
   gl_FragColor = vec4(tonemap(col),1.0);
@@ -726,10 +735,10 @@ void main(){ float a = pow(smoothstep(1.0,0.0,length((vUv-0.5)*2.0)),1.6);
   gl_FragColor = vec4(vC*0.55*a*uBeam*(1.0-fogAmt(vWorld)), 1.0); }`;
 
 const RAIN_V = `
-attribute vec3 aOff; uniform float uTime; uniform float uRain;
+attribute vec3 aOff; uniform float uTime; uniform float uRain; uniform float uRainNear;
 varying float vA; varying vec3 vWorld;
 void main(){
-  vec3 box = vec3(90.0, 60.0, 90.0);
+  vec3 box = vec3(60.0, 40.0, 60.0);
   if(fract(aOff.z*13.7) > uRain){ gl_Position = vec4(0.0,0.0,-2.0,1.0); return; }
   vec3 vel = vec3(4.0, -38.0, 1.5)*(0.85 + 0.3*fract(aOff.x*7.13));
   vec3 local = mod(aOff*box + vel*uTime - cameraPosition + box*0.5, box) - box*0.5;
@@ -738,7 +747,7 @@ void main(){
   vec3 dir = normalize(vel);
   vec3 side = normalize(cross(dir, normalize(cameraPosition - center)));
   vec3 wp = center + dir*position.y*1.1 + side*position.x*(0.02 + 0.0016*dist);
-  vA = (0.25 + 0.75*(position.y+0.5)) * (1.0 - smoothstep(22.0, 44.0, dist)) * smoothstep(0.6, 2.5, dist) * uRain;
+  vA = (0.25 + 0.75*(position.y+0.5)) * (1.0 - smoothstep(18.0, 29.0, dist)) * smoothstep(uRainNear, uRainNear + 1.8, dist) * uRain;
   vWorld = wp;
   gl_Position = projectionMatrix*viewMatrix*vec4(wp,1.0);
 }`;
@@ -1482,7 +1491,7 @@ function updateBolts(dt){
 }
 
 /* rain: GPU-animated streaks in a box that follows the camera */
-const RAIN_N = 22000;
+const RAIN_N = 7000;   // VR: a smaller box keeps nearby density close to desktop at a third of the streaks
 const rainOff = new Float32Array(RAIN_N*3);
 for (let i=0;i<RAIN_N*3;i++) rainOff[i] = Math.random();
 const rainGeo = new THREE.PlaneGeometry(1,1);
@@ -1626,7 +1635,6 @@ const postQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), compMat);
 postQuad.frustumCulled = false; postScene.add(postQuad);
 function pass(mat, target){ postQuad.material = mat; renderer.setRenderTarget(target); renderer.render(postScene, postCam); }
 function renderFrame(){
-  if (U.uRain.value > 0.01) renderReflection();
   if (!hdrOK){ renderer.setRenderTarget(null); renderer.render(scene, camera); return; }
   renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
   if (bloomOn){
@@ -1739,9 +1747,12 @@ $('#soundBtn').addEventListener('click', e=>{
   rainSound(rainTarget > 0);
 });
 window.addEventListener('blur', ()=>{ for (const k in input) input[k] = false; });
-function setWeather(v){ rainTarget = 0; setSeg('weatherSeg', v); audioUnlock(); rainSound(rainTarget > 0); }
+function setWeather(v){ rainTarget = v === 'rain' ? 1 : 0; setSeg('weatherSeg', v); audioUnlock(); rainSound(rainTarget > 0); }
 document.querySelectorAll('#weatherSeg button').forEach(b=>b.addEventListener('click',()=>setWeather(b.dataset.v)));
 function setTime(v){ timeTarget = PRESETS[v]; setSeg('timeSeg', v); }
+const TIME_ORDER = ['day','dusk','night'];
+function timeName(){ const t = TIME_ORDER.find(k=>PRESETS[k]===timeTarget) || 'dusk'; return t[0].toUpperCase() + t.slice(1); }
+function cycleTime(){ const i = TIME_ORDER.findIndex(k=>PRESETS[k]===timeTarget); setTime(TIME_ORDER[(i+1)%3]); }
 document.querySelectorAll('#camSeg button').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.v)));
 document.querySelectorAll('#timeSeg button').forEach(b=>b.addEventListener('click',()=>setTime(b.dataset.v)));
 function newCity(){ const s = 1+Math.floor(Math.random()*99999); $('#seed').value = s; regenerate(s); }
@@ -1845,6 +1856,15 @@ function vrStep(dt){
     rig.position.copy(tA);
   } else rig.position.copy(fly.pos);
   rig.rotation.set(0, vrYaw, 0);
+  U.uRainNear.value = inside ? 1.4 : 0.6;
+  windshield.visible = inside && U.uRain.value > 0.01;
+  if (windshield.visible){
+    const fwd = -Math.sin(vrYaw)*fly.vel.x - Math.cos(vrYaw)*fly.vel.z;
+    const air = Math.min(1, Math.max(0, fwd/40));
+    wsMat.uniforms.uAir.value += (air - wsMat.uniforms.uAir.value)*(1-Math.exp(-dt*3));
+    const a = wsMat.uniforms.uAir.value;
+    wsMat.uniforms.uWsPhase.value += (-0.015 + 1.5*a*a)*dt;   // gravity crawl when hovering, airflow at speed
+  }
   if (inside){
     const lt = 0.55 + 0.9*U.uBodyLight.value + 1.2*U.uFlash.value;
     for (const [m,c] of tint) m.color.setRGB(c[0]*lt, c[1]*lt, c[2]*lt);
@@ -1940,6 +1960,45 @@ for (const sx of [-1,1]){
 }
 cbox(0.02,0.1,0.02, 0,0.38,-0.36, frameM);            // mirror stem
 cbox(0.3,0.085,0.02, 0,0.32,-0.37, new THREE.MeshBasicMaterial({color:0x1b2230}));
+/* rain on the windshield: beads that crawl down when you hover and get blown up the glass at speed */
+const WS_V = `varying vec2 vQ; void main(){ vQ = vec2(position.x, uv.y); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const WS_F = COMMON + `
+uniform float uTime; uniform float uWsPhase; uniform float uAir; uniform float uWinBright;
+varying vec2 vQ;
+float drops(vec2 q, float scale, float slide, float seed, out float spec){
+  vec2 g = q*scale;
+  float h = hash12(vec2(floor(g.x), seed));
+  g.y -= slide*(0.55 + 0.9*h)*scale;              // each column slides at its own pace, so fast drops streak
+  vec2 id = floor(g), f = fract(g) - 0.5;
+  float life = uTime*0.11 + hash12(id + seed*3.1);
+  float cyc = floor(life), t = fract(life);
+  float on = step(hash12(id + seed*7.0 + cyc*13.7), uRain*0.3);
+  vec2 off = (vec2(hash12(id+seed+1.3+cyc), hash12(id+seed+5.1+cyc)) - 0.5)*0.5;
+  float r = 0.12 + 0.16*hash12(id+seed+9.7+cyc);
+  vec2 dv = f - off; dv.y /= 1.0 + uAir*3.5;     // stretched along the airflow
+  float d = length(dv);
+  float fade = smoothstep(0.0, 0.04, t)*(1.0 - smoothstep(0.8, 1.0, t))*on;
+  spec = smoothstep(r*0.32, r*0.1, length(dv - vec2(-0.25*r, 0.35*r)))*fade;   // glint near the top of each bead
+  return smoothstep(r, r*0.55, d)*fade;
+}
+void main(){
+  float s1, s2;
+  float a = drops(vQ, 34.0, uWsPhase, 1.0, s1);
+  float b = drops(vQ + 0.37, 62.0, uWsPhase*0.8, 4.0, s2)*(1.0 - 0.75*uAir);
+  float m = max(a, b*0.7), sp = max(s1, s2*0.7);
+  if(m < 0.01) discard;
+  vec3 env = uFogColor*1.2 + vec3(0.04,0.045,0.055) + vec3(1.0,0.8,0.55)*uWinBright*0.05 + vec3(0.7,0.75,0.9)*uFlash*1.6;
+  vec3 col = mix(env*0.8, env*2.0 + 0.12, sp);
+  gl_FragColor = vec4(col, (m*0.28 + sp*0.6)*uRain);
+}`;
+const wsGeo = new THREE.BufferGeometry();
+wsGeo.setAttribute('position', new THREE.Float32BufferAttribute([-0.77,-0.4,-0.93, 0.77,-0.4,-0.93, -0.53,0.4,-0.33, 0.53,0.4,-0.33], 3));
+wsGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0,0, 1,0, 0,1, 1,1], 2));
+wsGeo.setIndex([0,1,2, 2,1,3]);
+const wsMat = new THREE.ShaderMaterial({uniforms:Object.assign({uWsPhase:{value:0}, uAir:{value:0}}, U), vertexShader:WS_V, fragmentShader:WS_F, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+const windshield = new THREE.Mesh(wsGeo, wsMat);
+windshield.frustumCulled = false; windshield.renderOrder = 4; windshield.visible = false;
+cockpit.add(windshield);
 const dashCanvas = document.createElement('canvas'); dashCanvas.width = 1024; dashCanvas.height = 256;
 const dctx = dashCanvas.getContext('2d');
 const dashTex = new THREE.CanvasTexture(dashCanvas);
@@ -2187,7 +2246,9 @@ function menuModel(){
     {id:'combat', label:'Combat', sub: combatSub()},
     {id:'courier', label:'Courier', sub: courierSub()},
     {id:'newcity', label:'New city', sub:'Seed ' + SEED, small:true, half:true},
-    {id:'music', label:'Music', sub: musicLevelName(), small:true, half:true}]};
+    {id:'music', label:'Music', sub: musicLevelName(), small:true, half:true},
+    {id:'weather', label:'Weather', sub: rainTarget > 0 ? 'Rain' : 'Clear', small:true, half:true},
+    {id:'time', label:'Time', sub: timeName(), small:true, half:true}]};
 }
 function menuAction(id){
   if (id === 'combat' || id === 'fight'){ startCombat(); return; }
@@ -2197,6 +2258,8 @@ function menuAction(id){
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
   else if (id === 'newcity'){ newCity(); seedMusic(); showMenu(true); }
   else if (id === 'music'){ cycleMusic(); showMenu(true); }
+  else if (id === 'weather'){ setWeather(rainTarget > 0 ? 'clear' : 'rain'); showMenu(true); }
+  else if (id === 'time'){ cycleTime(); showMenu(true); }
   else if (id.startsWith('course')) startRace(parseInt(id.slice(6),10));
   else if (id === 'retry') startRace(lastResult ? lastResult.k : raceK);
   else if (id === 'next') startRace((lastResult ? lastResult.k : raceK)%3 + 1);
@@ -2216,12 +2279,13 @@ function buildMenuDom(){
   card.innerHTML = h + '</div>';
   card.querySelectorAll('.mbtn').forEach(b => b.addEventListener('click', () => { audioUnlock(); menuAction(b.dataset.id); }));
 }
-const MW = 1024, MH = 720;
+const MW = 1024, MH = 824;
 const menuCanvas = document.createElement('canvas'); menuCanvas.width = MW; menuCanvas.height = MH;
 const mctx = menuCanvas.getContext('2d');
 const menuTex = new THREE.CanvasTexture(menuCanvas);
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.125), new THREE.MeshBasicMaterial({map:menuTex, transparent:true, depthWrite:false}));
-menuMesh.position.set(0, 0.16, -2.0);   // high enough to clear the dashboard screen menuMesh.visible = false; menuMesh.frustumCulled = false; menuMesh.renderOrder = 10;
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6*824/1024), new THREE.MeshBasicMaterial({map:menuTex, transparent:true, depthWrite:false}));
+menuMesh.position.set(0, 0.22, -2.0);   // high enough to clear the dashboard screen
+menuMesh.visible = false; menuMesh.frustumCulled = false; menuMesh.renderOrder = 10;
 rig.add(menuMesh);
 function menuLayout(md){
   const rects = []; let y = md.big ? 300 : 210; let col = 0, hcol = 0;
