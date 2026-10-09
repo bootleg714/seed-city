@@ -1803,12 +1803,19 @@ arrow.visible = false; arrow.frustumCulled = false; arrow.renderOrder = 20; scen
 const arrowGoal = new THREE.Vector3(), camQ = new THREE.Quaternion();
 function placeArrow(dt){
   const vr = renderer.xr.isPresenting;
-  camera.getWorldPosition(arrowGoal); camera.getWorldQuaternion(camQ);
-  tB.set(0, vr ? 0.3 : 0.42, vr ? -1.0 : -1.4).applyQuaternion(camQ);
-  arrowGoal.add(tB);
-  if (vr && arrow.visible) arrow.position.lerp(arrowGoal, 1 - Math.exp(-dt*14));   // follows your gaze, lightly smoothed
-  else arrow.position.copy(arrowGoal);
-  arrow.scale.setScalar(vr ? 0.22 : 0.3);
+  if (vr){
+    // ride along with the rig so flying never leaves it behind; only head turns are smoothed
+    if (arrow.parent !== rig){ rig.add(arrow); arrow.visible = false; }
+    arrowGoal.set(0, 0.3, -1.0).applyQuaternion(camera.quaternion).add(camera.position);   // both in rig space
+    if (arrow.visible) arrow.position.lerp(arrowGoal, 1 - Math.exp(-dt*14)); else arrow.position.copy(arrowGoal);
+    arrow.scale.setScalar(0.22);
+  } else {
+    if (arrow.parent !== scene) scene.add(arrow);
+    camera.getWorldPosition(arrowGoal); camera.getWorldQuaternion(camQ);
+    tB.set(0, 0.42, -1.4).applyQuaternion(camQ);
+    arrow.position.copy(arrowGoal.add(tB));
+    arrow.scale.setScalar(0.3);
+  }
 }
 
 // little synth cues
