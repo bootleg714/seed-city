@@ -1881,7 +1881,8 @@ function raceUpdate(dt){
   const yaw = presenting ? vrYaw : fly.yaw;
   const chaseLike = presenting ? vrView === 'chase' : (mode === 'fly' && view === 'chase');
   if (chaseLike) arrow.position.set(fly.pos.x, fly.pos.y + 3.4, fly.pos.z);
-  else arrow.position.set(fly.pos.x - Math.sin(yaw)*3.2, fly.pos.y - 0.35, fly.pos.z - Math.cos(yaw)*3.2);
+  else arrow.position.set(fly.pos.x - Math.sin(yaw)*6.0, fly.pos.y + 2.2, fly.pos.z - Math.cos(yaw)*6.0);   // up near the top of your view, clear of your line of sight
+  arrow.scale.setScalar(chaseLike ? 1 : 1.5);
   arrow.lookAt(ng.p); arrow.visible = true;
   // timer readouts
   const head = race.state === 'count' ? 'GET READY  ' + Math.max(1, Math.ceil(race.count)) : 'GATE ' + Math.min(race.i+1, GATE_N) + '/' + GATE_N + '   ' + fmtT(race.t);
@@ -2117,7 +2118,8 @@ function courierUpdate(dt){
   const yaw = presenting ? vrYaw : fly.yaw;
   const chaseLike = presenting ? vrView === 'chase' : (mode === 'fly' && view === 'chase');
   if (chaseLike) arrow.position.set(fly.pos.x, fly.pos.y + 3.4, fly.pos.z);
-  else arrow.position.set(fly.pos.x - Math.sin(yaw)*3.2, fly.pos.y - 0.35, fly.pos.z - Math.cos(yaw)*3.2);
+  else arrow.position.set(fly.pos.x - Math.sin(yaw)*6.0, fly.pos.y + 2.2, fly.pos.z - Math.cos(yaw)*6.0);   // up near the top of your view, clear of your line of sight
+  arrow.scale.setScalar(chaseLike ? 1 : 1.5);
   tA.set(tgt.x, tgt.y + 2, tgt.z); arrow.lookAt(tA); arrow.visible = true;
   arrow.material.color.setHex(cour.state === 'pickup' ? 0x4fd8ff : 0xffb45e);
   // readout
