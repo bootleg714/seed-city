@@ -313,7 +313,7 @@ void main(){
   col = mix(col, col*0.5 + uFogColor*0.25, uRain*0.8);
   col += vec3(0.5,0.55,0.75)*uFlash*1.6*smoothstep(-0.1,0.4,h);
   col = mix(fogCol(d), col, smoothstep(-0.02,0.18,h));
-  gl_FragColor = vec4(tonemap(col),1.0);
+  gl_FragColor = vec4(tonemap(col), uHDR > 0.5 ? 0.0 : 1.0);   // alpha 0 tags sky pixels for the bloom pass
 }`;
 
 const GROUND_V = `varying vec3 vWorld; void main(){ vec4 wp = modelMatrix*vec4(position,1.0); vWorld = wp.xyz; gl_Position = projectionMatrix*viewMatrix*wp; }`;
@@ -1569,6 +1569,7 @@ try{ const v = parseFloat(localStorage.getItem('seedcity.glow')); if (isFinite(v
 const glowRadius = () => 0.6 + glowSize*2.0;   // stretches each upsample tap
 const glowGain = () => 0.8 + glowSize*0.6;
 const glowSpread = () => 1.0 + glowSize*0.5;  // weight on the wider levels: bigger halos, not just a fainter one
+function skyGlowK(){ let e = 0; const sp = glowSpread(); for (let i=0;i<NM;i++) e += Math.pow(sp, i); return 5/(glowGain()*e); }
 const hdrOpts = {type:THREE.HalfFloatType, format:THREE.RGBAFormat, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter};
 let sceneRT = null; const down = [], up = [];
 if (hdrOK){
@@ -1578,14 +1579,18 @@ if (hdrOK){
 }
 const POST_V = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy,0.0,1.0); }`;
 const postMat = f => new THREE.ShaderMaterial({uniforms:f.u, vertexShader:POST_V, fragmentShader:f.s, depthTest:false, depthWrite:false});
-const downMat = postMat({u:{tSrc:{value:null}, uTexel:{value:new THREE.Vector2()}, uFirst:{value:0}, uThreshold:{value:1.0}}, s:`
-uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uFirst; uniform float uThreshold; varying vec2 vUv;
+const downMat = postMat({u:{tSrc:{value:null}, uTexel:{value:new THREE.Vector2()}, uFirst:{value:0}, uThreshold:{value:1.0}, uSkyK:{value:1}}, s:`
+uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uFirst; uniform float uThreshold; uniform float uSkyK; varying vec2 vUv;
 vec3 samp(vec2 uv){
-  vec3 c = min(texture2D(tSrc, uv).rgb, vec3(40.0));
+  vec4 t = texture2D(tSrc, uv);
+  vec3 c = min(t.rgb, vec3(40.0));
   if(uFirst > 0.5){
     float br = max(c.r, max(c.g, c.b));
-    float soft = clamp(br - uThreshold + 0.5, 0.0, 1.0); soft = soft*soft*0.5;
-    c *= max(soft, br - uThreshold)/max(br, 1e-4);
+    float isSky = 1.0 - clamp(t.a, 0.0, 1.0);
+    float thr = mix(uThreshold, 1.2, isSky);                  // sky keeps the original threshold
+    float soft = clamp(br - thr + 0.5, 0.0, 1.0); soft = soft*soft*0.5;
+    c *= max(soft, br - thr)/max(br, 1e-4);
+    c *= mix(1.0, uSkyK, isSky);                              // and the original total glow
   }
   return c;
 }
@@ -1625,7 +1630,7 @@ function renderFrame(){
   if (bloomOn){
     let src = sceneRT.texture, sw = sceneRT.width, sh = sceneRT.height;
     for (let i=0;i<NM;i++){
-      downMat.uniforms.tSrc.value = src; downMat.uniforms.uTexel.value.set(1/sw, 1/sh); downMat.uniforms.uFirst.value = i === 0 ? 1 : 0;
+      downMat.uniforms.tSrc.value = src; downMat.uniforms.uTexel.value.set(1/sw, 1/sh); downMat.uniforms.uFirst.value = i === 0 ? 1 : 0; downMat.uniforms.uSkyK.value = skyGlowK();
       pass(downMat, down[i]); src = down[i].texture; sw = down[i].width; sh = down[i].height;
     }
     let small = down[NM-1];
