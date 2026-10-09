@@ -114,6 +114,7 @@ details b{color:var(--fg);font-weight:600}
       <li><b>Left stick</b> fly · <b>left trigger</b> boost</li>
       <li><b>Right stick</b> turn / climb and dive</li>
       <li><b>Right trigger</b> fire straight ahead</li>
+      <li><b>Y</b> switch view: cockpit, chase, open</li>
       <li><b>A</b> time of day · <b>B</b> new city · <b>X</b> light beams</li>
     </ul>
   </div>
@@ -1773,7 +1774,9 @@ function vrStep(dt){
   const L = pad('left'), Rr = pad('right');
   let f = 0, s = 0, u = 0, boost = false;
   if (L){ const [x,y] = stick(L.g); f = -y; s = x; boost = !!(L.g.buttons[0] && L.g.buttons[0].value > 0.5);
-    if (pressed('l', L.g, 4)){ const b = document.querySelector('#lightSeg [data-v="beams"]'); if (b) b.click(); } }
+    if (pressed('l', L.g, 4)){ const b = document.querySelector('#lightSeg [data-v="beams"]'); if (b) b.click(); }
+    if (pressed('l', L.g, 5)){ vrView = VIEWS[(VIEWS.indexOf(vrView)+1)%VIEWS.length]; buzz(L.g, 0.3, 30); } }
+  boostOn = boost;
   let turnTarget = 0;
   if (Rr){
     const [x,y] = stick(Rr.g); u = -y;
@@ -1783,7 +1786,9 @@ function vrStep(dt){
   }
   // smooth turning that eases in and out, pivoting around your head rather than the car's origin
   turnRate += (turnTarget - turnRate)*(1-Math.exp(-dt*8));
-  if (Math.abs(turnRate) > 1e-4){
+  if (Math.abs(turnRate) > 1e-4 && vrView === 'chase'){
+    vrYaw += turnRate*dt;
+  } else if (Math.abs(turnRate) > 1e-4){
     const upAx = new THREE.Vector3(0,1,0);
     const hw = camera.position.clone().applyAxisAngle(upAx, vrYaw).add(fly.pos);
     vrYaw += turnRate*dt;
@@ -1799,9 +1804,24 @@ function vrStep(dt){
   let impact = 0;
   for (let i=0;i<n;i++){ fly.pos.addScaledVector(fly.vel, dt/n); impact = Math.max(impact, collide(fly.pos, fly.vel)); }
   if (impact > 4){ bumps++; if (L) buzz(L.g, 0.7, 70); if (Rr) buzz(Rr.g, 0.7, 70); }
-  rig.position.copy(fly.pos); rig.rotation.set(0, vrYaw, 0);
+  // views: interior cockpit, chase camera behind the car, or the open cockpit
+  const inside = vrView === 'interior';
+  cockpit.visible = inside;
+  playerCar.visible = !inside;
+  playerMat.uniforms.uHideGlass.value = vrView === 'open' ? 1 : 0;
+  if (vrView === 'chase'){
+    tA.set(fly.pos.x + Math.sin(vrYaw)*11, fly.pos.y + 3.2, fly.pos.z + Math.cos(vrYaw)*11);
+    const tc = clearLine(fly.pos, tA);
+    if (tc < 1) tA.lerpVectors(fly.pos, tA, tc);
+    rig.position.copy(tA);
+  } else rig.position.copy(fly.pos);
+  rig.rotation.set(0, vrYaw, 0);
+  if (inside){
+    const lt = 0.55 + 0.9*U.uBodyLight.value + 1.2*U.uFlash.value;
+    for (const [m,c] of tint) m.color.setRGB(c[0]*lt, c[1]*lt, c[2]*lt);
+    dashT += dt; if (dashT > 0.1){ dashT = 0; drawDash(); }
+  }
   // the car sits around you
-  playerCar.visible = true;
   playerCar.rotation.set(0, vrYaw+Math.PI/2, 0);
   playerCar.position.copy(headLocal).negate().applyEuler(playerCar.rotation).add(fly.pos);
   playerCar.updateMatrixWorld(true);
@@ -1813,6 +1833,9 @@ function vrStep(dt){
   }
   pbGeo.attributes.aOrig.needsUpdate = true; pbGeo.attributes.aDir.needsUpdate = true;
   playerBeams.visible = beamsOn;
+  reticle.visible = true;
+  reticle.position.set(45,-0.3,0).applyMatrix4(playerCar.matrixWorld);
+  reticle.quaternion.copy(playerCar.quaternion).multiply(qRet);
   // right trigger: fire straight ahead from the car's guns
   vrFireCd -= dt;
   if (Rr && Rr.g.buttons[0] && Rr.g.buttons[0].value > 0.5 && vrFireCd <= 0){
@@ -1829,7 +1852,77 @@ const reticle = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 40), new THREE
 reticle.rotation.y = Math.PI/2; reticle.position.set(45, -0.3, 0); reticle.frustumCulled = false;
 const reticleDot = new THREE.Mesh(new THREE.CircleGeometry(0.12, 16), reticle.material);
 reticle.add(reticleDot);
-playerCar.add(reticle);
+scene.add(reticle); reticle.visible = false;
+const qRet = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
+/* VR interior cockpit (rig space: your head at the origin, forward is -z) */
+let vrView = 'interior', boostOn = false, dashT = 0;
+const VIEWS = ['interior','chase','open'];
+const cockpit = new THREE.Group(); cockpit.visible = false; rig.add(cockpit);
+const tint = [];
+const cmat = (r,g,b)=>{ const m = new THREE.MeshBasicMaterial({color:new THREE.Color(r,g,b)}); tint.push([m,[r,g,b]]); return m; };
+const frameM = cmat(0.05,0.05,0.06), dashM = cmat(0.085,0.08,0.085), leatherM = cmat(0.22,0.12,0.075);
+const stripM = new THREE.MeshBasicMaterial({color:0xffb45e});
+function cbox(w,h,d,x,y,z,mat,rx){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z); m.rotation.x = rx||0; m.frustumCulled = false; cockpit.add(m); return m;
+}
+function strut(a,b,t,mat){
+  const A = new THREE.Vector3(a[0],a[1],a[2]), B = new THREE.Vector3(b[0],b[1],b[2]);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(t, A.distanceTo(B), t*1.3), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), B.clone().sub(A).normalize());
+  m.frustumCulled = false; cockpit.add(m); return m;
+}
+cbox(1.7,0.22,0.55, 0,-0.5,-0.78, dashM, -0.18);     // slanted dash top
+cbox(1.7,0.4,0.2, 0,-0.72,-0.62, leatherM);          // lower dash face
+cbox(1.72,0.015,0.02, 0,-0.39,-0.52, stripM);         // light strip along the dash edge
+cbox(0.34,0.3,0.7, 0,-0.85,-0.1, dashM);              // centre console
+strut([-0.8,-0.4,-0.95], [-0.55,0.42,-0.3], 0.07, frameM);   // windshield pillars
+strut([ 0.8,-0.4,-0.95], [ 0.55,0.42,-0.3], 0.07, frameM);
+cbox(1.2,0.08,0.12, 0,0.44,-0.3, frameM);             // header above the windshield
+cbox(1.4,0.04,1.3, 0,0.5,0.35, frameM);               // roof
+for (const sx of [-1,1]){
+  cbox(0.08,0.06,1.6, sx*0.82,-0.33,-0.05, leatherM); // window sill
+  cbox(0.05,0.55,1.6, sx*0.86,-0.62,-0.05, dashM);    // door panel
+  strut([sx*0.82,-0.3,0.7], [sx*0.62,0.48,0.62], 0.08, frameM);
+  cbox(0.012,0.012,1.5, sx*0.8,-0.295,-0.05, stripM); // door accent light
+}
+cbox(0.02,0.1,0.02, 0,0.38,-0.36, frameM);            // mirror stem
+cbox(0.3,0.085,0.02, 0,0.32,-0.37, new THREE.MeshBasicMaterial({color:0x1b2230}));
+const dashCanvas = document.createElement('canvas'); dashCanvas.width = 1024; dashCanvas.height = 256;
+const dctx = dashCanvas.getContext('2d');
+const dashTex = new THREE.CanvasTexture(dashCanvas);
+const dashScreen = new THREE.Mesh(new THREE.PlaneGeometry(1.0,0.25), new THREE.MeshBasicMaterial({map:dashTex}));
+dashScreen.position.set(0,-0.36,-0.6); dashScreen.rotation.x = -0.55; dashScreen.frustumCulled = false;
+cockpit.add(dashScreen);
+function drawDash(){
+  const W = 1024, H = 256, c = dctx, spd = Math.round(fly.vel.length()*3.6);
+  c.fillStyle = '#04060a'; c.fillRect(0,0,W,H);
+  c.strokeStyle = 'rgba(255,180,94,0.35)'; c.lineWidth = 3; c.strokeRect(6,6,W-12,H-12);
+  c.textAlign = 'center'; c.fillStyle = '#ffffff'; c.font = 'bold 120px monospace'; c.fillText(String(spd), 370, 168);
+  c.fillStyle = '#a69d93'; c.font = '600 30px monospace'; c.fillText('km/h', 370, 214);
+  c.textAlign = 'left'; c.font = '600 26px monospace';
+  c.fillStyle = '#a69d93'; c.fillText('AUTOPILOT OFF', 36, 58);
+  c.fillStyle = boostOn ? '#ff4b3e' : '#4a4540'; c.fillText('TURBO', 36, 94);
+  c.fillStyle = '#e9e2d8'; c.fillText('ALT ' + Math.round(fly.pos.y) + ' m', 36, 160);
+  c.fillText('HITS ' + hits, 36, 200);
+  const hdg = ((-vrYaw*180/Math.PI)%360 + 360)%360;
+  c.save(); c.beginPath(); c.rect(600,36,380,74); c.clip();
+  c.strokeStyle = '#6d665e'; c.lineWidth = 2; c.font = '600 28px monospace'; c.textAlign = 'center';
+  for (let a=0; a<360; a+=15){
+    const d = ((a - hdg + 540)%360) - 180, x = 790 + d*4.5;
+    c.beginPath(); c.moveTo(x, 104); c.lineTo(x, a%90 === 0 ? 80 : 94); c.stroke();
+    if (a%90 === 0){ c.fillStyle = a === 0 ? '#ffb45e' : '#e9e2d8'; c.fillText('NESW'[a/90], x, 70); }
+  }
+  c.restore();
+  c.fillStyle = '#ffb45e'; c.beginPath(); c.moveTo(790,112); c.lineTo(780,128); c.lineTo(800,128); c.fill();
+  c.fillStyle = '#e9e2d8'; c.font = '600 40px monospace'; c.textAlign = 'center';
+  c.fillText(String(Math.round(hdg)).padStart(3,'0') + '°', 790, 176);
+  c.fillStyle = 'rgba(255,255,255,0.08)'; c.fillRect(600,196,380,14);
+  c.fillStyle = boostOn ? '#ff4b3e' : '#ffb45e'; c.fillRect(600,196,380*Math.min(1, spd/250),14);
+  dashTex.needsUpdate = true;
+}
+drawDash();
 let xrSession = null;
 function startVR(){
   camera.getWorldPosition(camW);
@@ -1842,6 +1935,7 @@ function endVR(){
   rig.position.set(0,0,0); rig.rotation.set(0,0,0);
   playerMat.uniforms.uHideGlass.value = 0;
   playerCar.visible = false; playerBeams.visible = false;
+  cockpit.visible = false; reticle.visible = false;
 }
 (async function setupVR(){
   const btn = $('#vrBtn'), msg = $('#vrMsg');
