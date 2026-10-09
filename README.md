@@ -14,6 +14,14 @@ Once GitHub Pages is on, the links are:
 - VR: `https://bootleg714.github.io/seed-city/`
 - Desktop: `https://bootleg714.github.io/seed-city/desktop.html`
 
+## Game modes
+
+A menu floats over the live city when you start (in VR, point a controller at it and pull the trigger; on a flat screen, click).
+
+- **Free Flight:** fly anywhere.
+- **Races:** each seed grows three checkpoint courses that follow the streets. Fly through the rings in order: the next ring is amber, the one after is cyan, and the green ring is the finish. A floating arrow points the way, a 3-2-1 countdown starts you off, and your best time for each course is saved on the device (per seed).
+- **Combat** and **Courier** are coming soon.
+
 ## VR controls (Quest)
 
 - **Left stick:** fly forward, back and sideways
@@ -21,7 +29,7 @@ Once GitHub Pages is on, the links are:
 - **Right stick:** left/right turns smoothly, up/down climbs and dives
 - **Right trigger:** fire lasers straight ahead (aim with the ring in front of the car)
 - **A:** cycle time of day
-- **B:** grow a new city
+- **B:** back to the menu (grow a new city from the menu)
 - **X:** light beams on/off
 - **Y:** switch view: interior cockpit (dashboard with speed, altitude, compass), third-person chase, or float (no car, just you drifting through the city)
 
