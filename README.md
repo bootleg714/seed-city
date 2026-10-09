@@ -23,7 +23,7 @@ Once GitHub Pages is on, the links are:
 - **A:** cycle time of day
 - **B:** grow a new city
 - **X:** light beams on/off
-- **Y:** switch view: interior cockpit (dashboard with speed, altitude, compass), third-person chase, or open cockpit
+- **Y:** switch view: interior cockpit (dashboard with speed, altitude, compass), third-person chase, or float (no car, just you drifting through the city)
 
 Hold the Oculus button to recenter if your seat drifts. If smooth turning ever makes you queasy, a snap-turn version is in the commit history.
 

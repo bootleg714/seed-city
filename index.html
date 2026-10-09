@@ -114,7 +114,7 @@ details b{color:var(--fg);font-weight:600}
       <li><b>Left stick</b> fly · <b>left trigger</b> boost</li>
       <li><b>Right stick</b> turn / climb and dive</li>
       <li><b>Right trigger</b> fire straight ahead</li>
-      <li><b>Y</b> switch view: cockpit, chase, open</li>
+      <li><b>Y</b> switch view: cockpit, chase, float</li>
       <li><b>A</b> time of day · <b>B</b> new city · <b>X</b> light beams</li>
     </ul>
   </div>
@@ -1799,16 +1799,16 @@ function vrStep(dt){
   const top = Math.max(6, speed*0.8)*(boost ? 2 : 1), acc = top*2.2;
   fly.vel.x += (-sy*f + cy*s)*acc*dt; fly.vel.z += (-cy*f - sy*s)*acc*dt; fly.vel.y += u*acc*dt;
   fly.vel.multiplyScalar(Math.exp(-dt*2.2));
-  RAD = 2.4;
+  RAD = vrView === 'float' ? 1.0 : 2.4;       // a person is smaller than a car
   const n = Math.max(1, Math.ceil(fly.vel.length()*dt/0.8));
   let impact = 0;
   for (let i=0;i<n;i++){ fly.pos.addScaledVector(fly.vel, dt/n); impact = Math.max(impact, collide(fly.pos, fly.vel)); }
   if (impact > 4){ bumps++; if (L) buzz(L.g, 0.7, 70); if (Rr) buzz(Rr.g, 0.7, 70); }
-  // views: interior cockpit, chase camera behind the car, or the open cockpit
+  // views: interior cockpit, chase camera behind the car, or floating free with no car at all
   const inside = vrView === 'interior';
   cockpit.visible = inside;
-  playerCar.visible = !inside;
-  playerMat.uniforms.uHideGlass.value = vrView === 'open' ? 1 : 0;
+  playerCar.visible = vrView === 'chase';
+  playerMat.uniforms.uHideGlass.value = 0;
   if (vrView === 'chase'){
     tA.set(fly.pos.x + Math.sin(vrYaw)*11, fly.pos.y + 3.2, fly.pos.z + Math.cos(vrYaw)*11);
     const tc = clearLine(fly.pos, tA);
@@ -1832,7 +1832,7 @@ function vrStep(dt){
     pbO[sd*3]=tA.x; pbO[sd*3+1]=tA.y; pbO[sd*3+2]=tA.z; pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;
   }
   pbGeo.attributes.aOrig.needsUpdate = true; pbGeo.attributes.aDir.needsUpdate = true;
-  playerBeams.visible = beamsOn;
+  playerBeams.visible = beamsOn && vrView !== 'float';
   reticle.visible = true;
   reticle.position.set(45,-0.3,0).applyMatrix4(playerCar.matrixWorld);
   reticle.quaternion.copy(playerCar.quaternion).multiply(qRet);
@@ -1856,7 +1856,7 @@ scene.add(reticle); reticle.visible = false;
 const qRet = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 /* VR interior cockpit (rig space: your head at the origin, forward is -z) */
 let vrView = 'interior', boostOn = false, dashT = 0;
-const VIEWS = ['interior','chase','open'];
+const VIEWS = ['interior','chase','float'];
 const cockpit = new THREE.Group(); cockpit.visible = false; rig.add(cockpit);
 const tint = [];
 const cmat = (r,g,b)=>{ const m = new THREE.MeshBasicMaterial({color:new THREE.Color(r,g,b)}); tint.push([m,[r,g,b]]); return m; };
