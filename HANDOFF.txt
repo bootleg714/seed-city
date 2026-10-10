@@ -416,6 +416,13 @@ the original build session, from the first prototype to 3D sound.
  - Thinner fog would expose the chunk edge; solved with the far fade.
  - Menu panel in VR overlapped the dash screen; raised it.
  - Name clash: a particle buffer shadowed the car "partGeo" helper.
+ - Audio crackled and cut out after many combat kills (worst on Quest).
+   Every one-shot sound made its own HRTF panner and never released it:
+   a heavy fight created ~1,000. Now one-shots borrow from a pool of 12
+   HRTF panners (oldest first; roof rain ticks use 4 cheap equal-power
+   ones), drone hums and sirens are stopped and disconnected when done,
+   and all SFX go through a limiter (sfxOut) so stacked explosions can't
+   clip. Rule: never call createPanner() per sound.
  - VR menu panel's renderOrder/visible/frustumCulled settings had ended up
    inside a // comment, so they never ran. Fixed when rain arrived in VR
    (otherwise transparent rain could draw over the menu).
