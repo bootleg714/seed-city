@@ -180,7 +180,12 @@ the original build session, from the first prototype to 3D sound.
  uFogScale (Fog slider, default 70% of original) x (1 + 0.6 x rain), lighter
  with height. A separate smoothstep toward the fog colour between ~945 and
  1180 m (uFogFar) ALWAYS hides the edge of the generated city, so lowering
- fog never reveals chunk edges. VR keeps its own denser fog.
+ fog never reveals chunk edges. VR keeps its own denser fog, with its
+ own far fade at 470-590 m (its 3x3 chunks always reach >= 600 m).
+ Day/dusk fog densities were lowered in both builds (bright haze reads
+ much thicker than the same amount of dark night fog); night unchanged.
+ Current presets: VR day .0012 dusk .0016 night .0029; desktop day .0011
+ dusk .0014 night .0021 (desktop then x Fog slider, default 0.7).
 
  Lighting extras: wall floodlights with ground light pools, sweeping
  rooftop searchlights, beacons, player headlight cones (additive cone
