@@ -1,12 +1,14 @@
 ================================================================================
  SEED CITY  —  PROJECT HANDOFF
- Browser game + Meta Quest VR build, made in one Claude session on 2026-10-09
+ Browser game + Meta Quest VR build, made with Claude on 2026-10-09
+ (original build session, then a second session the same evening)
 ================================================================================
 
 This file explains what Seed City is, how it was built, how the code is laid
 out, and what to know before changing it. It is written for future-you or for
-whoever (human or AI) picks the project up next. It covers everything done in
-the original build session, from the first prototype to 3D sound.
+whoever (human or AI) picks the project up next. It covers the original
+build session (first prototype to 3D sound) and the second session (VR
+rain, two rounds of audio performance fixes, lighter day/dusk fog).
 
 
 --------------------------------------------------------------------------------
@@ -22,14 +24,17 @@ the original build session, from the first prototype to 3D sound.
                 from cdnjs, WebGL + WebXR + Web Audio. No build step, no
                 server, no assets: every model, texture, sound and note of
                 music is generated in code.
- Size           index.html (VR) ~172 KB / 3,078 lines
-                desktop.html     ~160 KB / 2,853 lines
+ Size           index.html (VR) ~179 KB / 3,188 lines
+                desktop.html     ~163 KB / 2,905 lines
  Default seed   2611
 
  There is also a private copy of the desktop build as a Claude artifact
  ("Seed City"). That was the original workbench while the game was built.
  The owner set it to private; the GitHub desktop.html link is the one to
- share. Each change during the session was applied to all three copies.
+ share. In the first session each change was applied to all three
+ copies. The second session changed only the GitHub files, so the private
+ artifact is now behind (no menu Weather/Time, no audio fixes, old fog).
+ Treat GitHub as the source of truth.
 
 
 --------------------------------------------------------------------------------
@@ -59,6 +64,13 @@ the original build session, from the first prototype to 3D sound.
   13. Procedural music + volume control
   14. Bigger bloom (sun/moon excluded), lighter fog with seamless horizon
   15. 3D positional sound (HRTF), strongest in VR
+ Second session:
+  16. Light rain in VR (faked wet street, windshield drops), Weather and
+      Time items in the menu
+  17. Audio crackle fix, round 1: pooled panners, voices freed, limiter
+  18. Audio crackle fix, round 2: no automated positions, 30 Hz updates,
+      cheap panners for lasers/booms, caps on drones and explosions
+  19. Thinner day/dusk fog in both builds, far fade in VR
 
 
 --------------------------------------------------------------------------------
@@ -289,7 +301,8 @@ the original build session, from the first prototype to 3D sound.
    Right stick Y ..... climb / dive
    Right trigger ..... fire straight ahead from the car's guns (not where
                        the hand points; owner preferred this)
-   A ................. cycle time of day
+   A ................. cycle time of day (also Time in the menu;
+                       rain is switched with Weather in the menu)
    B ................. back to menu
    X ................. light beams on/off
    Y ................. cycle view: Interior -> Chase -> Float
@@ -338,13 +351,20 @@ the original build session, from the first prototype to 3D sound.
  rendering: ~-28 dB RMS ambient, peaks well below clipping.
 
  3D sound (HRTF). The Web Audio listener follows the camera (the headset in
- VR). Pieces:
+ VR). Positions of the listener and moving voices are set as plain .value
+ about 30 times a second (posTick), never with setTargetAtTime (see
+ section 14 for why). One-shots borrow panners from fixed pools via
+ spatialDest(pos, ref, roll, cheap): 6 HRTF (zips, enemy shots) and 10
+ equal-power (lasers, explosions, roof ticks). All SFX pass a limiter
+ (sfxOut()); music has its own compressor. Pieces:
    - 5 traffic voices assigned to the nearest cars (recomputed with the GPU
      formula every 0.12 s, extrapolated between scans), noise + engine hum,
      doppler on pitch/filter; flying cars whine, street cars rumble
    - lasers from the left/right guns, explosions where they happen
-   - each combat drone hums from its position; enemy bolts "zip" when they
-     pass within 12 m of your head
+   - combat drones hum from their positions (max 4 voices; a voice is
+     stopped and disconnected 0.4 s after its drone dies); enemy bolts
+     "zip" when they pass within 12 m of your head
+   - at most 3 explosion sounds start within 0.25 s (visuals unaffected)
    - a siren travels along a road somewhere every 25-60 s
    - rain drumming on the cockpit roof with spatial droplets (desktop
      cockpit view or VR interior view while raining)
@@ -400,6 +420,22 @@ the original build session, from the first prototype to 3D sound.
  than fly; headless Chrome's audio clock runs ~5x faster than real time, so
  test tones must be long.
 
+ Added in the second session:
+   - Playwright's Chromium was preinstalled (/opt/pw-browsers); launch it
+     with --use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader.
+   - Forcing the VR path without a headset: renderer.xr.enabled = false,
+     renderer.xr.isPresenting = true, then startVR(). The frame loop runs
+     vrStep and the cockpit; set vrView / vrYaw / fly.pos via a test hook.
+   - Audio leaks: wrap AudioContext.prototype.createPanner in a counter
+     before the page loads, then fire hundreds of zaps/booms/zips.
+   - Audio cost: build the scene's node graph in an OfflineAudioContext and
+     time startRendering(); ctx.suspend(t).then(update; resume) simulates
+     per-frame position updates. Compare against a no-update baseline,
+     since suspends add their own overhead.
+   - Game time crawls at SwiftShader frame rates (dt is capped at 0.05),
+     so poll for game state (e.g. drones active) instead of fixed waits,
+     and time audio cleanup on actx.currentTime, not frame dt.
+
 
 --------------------------------------------------------------------------------
  14. BUGS FIXED / LESSONS (things that bit once)
@@ -446,6 +482,9 @@ the original build session, from the first prototype to 3D sound.
    lasers fire straight ahead, not hand-aimed; smooth turning over snap;
    ribbon-style landmarks over loud full-skin screens; music a notch quieter;
    bigger glow but natural sun/moon; less fog; HUD info at the top of view.
+   Second session: liked the VR rain; happy that the Quest build looks
+   different from PC ("looks really cool for an Oculus 2") as long as it
+   runs smoothly. Real-device feedback comes from the owner's Quest 2.
 
 
 --------------------------------------------------------------------------------
@@ -479,7 +518,15 @@ the original build session, from the first prototype to 3D sound.
    5ae2832  Bloom: keep the sun and moon at their original glow
    3b682c9  Desktop: lighter default fog, Fog slider, seamless far edge
    f828f80  Add 3D positional sound
-   (plus the commit that adds this handoff file)
+   a7d54da  Add HANDOFF.txt: full project handoff notes
+ Second session:
+   016b0e2  VR: light rain with a faked wet street and windshield drops
+   31c7fe4  Fix audio crackle and dropouts after many combat kills
+   be25f69  Cut audio load so explosion bursts no longer crackle
+   68a8bad  Thinner fog in daytime and at dusk
+   (plus the commit that updates this handoff file)
+ Commits are authored as bootleg714 <bootleg714@users.noreply.github.com>:
+ GitHub rejects pushes that expose the owner's private email.
  Features built before f0c230e (the city, cars, signs, flight, lasers,
  HDR, reflections, landmarks, rain) were developed in the Claude artifact
  and arrived in the first commit as a finished whole.
@@ -498,5 +545,10 @@ the original build session, from the first prototype to 3D sound.
    version is in commit f2c5441)
  - Refactor: move shared code into .js modules so both builds load the
    same source instead of being patched twice
+ - Bigger VR world (chunk radius 2) to see farther now that fog is
+   thinner; costs frame rate on Quest 2, so test carefully
+ - A controller shortcut for rain in VR (every button is taken; today it
+   is only in the menu)
+ - Bring the private Claude artifact copy up to date, or retire it
 
 ================================================================================
