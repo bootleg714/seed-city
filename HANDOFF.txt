@@ -423,6 +423,16 @@ the original build session, from the first prototype to 3D sound.
    ones), drone hums and sirens are stopped and disconnected when done,
    and all SFX go through a limiter (sfxOut) so stacked explosions can't
    clip. Rule: never call createPanner() per sound.
+   Round two (crackle still came with explosion bursts): Chrome puts any
+   panner whose position (or the listener's) is automated onto a costly
+   per-sample path, and a listener change recomputes every panner. Old
+   code used setTargetAtTime for listener + voices every frame. Now:
+   plain .value updates at ~30 Hz (posTick), lasers/booms on cheap
+   equal-power panners, max 4 drone hums, max 3 booms per 0.25 s, drone
+   wobble on volume/pitch instead of an audio-rate filter sweep, traffic
+   filters set with plain values. Offline benchmark of a heavy fight:
+   ~44% of real time before, ~11% after. Rules: no setTargetAtTime on
+   positions or biquad frequencies; no audio-rate modulation of filters.
  - VR menu panel's renderOrder/visible/frustumCulled settings had ended up
    inside a // comment, so they never ran. Fixed when rain arrived in VR
    (otherwise transparent rain could draw over the menu).

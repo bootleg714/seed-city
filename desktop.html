@@ -1521,10 +1521,11 @@ function sfxZap(pos){
   o.type = 'sawtooth';
   o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(160, t+0.12);
   g.gain.setValueAtTime(0.045, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.14);
-  o.connect(g); g.connect(spatialDest(pos, 3, 1.4)); o.start(t); o.stop(t+0.16);
+  o.connect(g); g.connect(spatialDest(pos, 3, 1.4, true)); o.start(t); o.stop(t+0.16);
 }
 function sfxBoom(vol, pos){
   if (!soundOn || !actx || actx.state !== 'running') return;
+  if (sp3){ const now = actx.currentTime; sp3.booms = sp3.booms.filter(b => now - b < 0.25); if (sp3.booms.length >= 3) return; sp3.booms.push(now); }
   if (!noiseBuf){
     noiseBuf = actx.createBuffer(1, actx.sampleRate*0.8, actx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
@@ -1533,7 +1534,7 @@ function sfxBoom(vol, pos){
   src.buffer = noiseBuf; f.type = 'lowpass';
   f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(90, t+0.7);
   g.gain.setValueAtTime(0.35*vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.75);
-  src.connect(f); f.connect(g); g.connect(spatialDest(pos, 30, 1.0)); src.start(t); src.stop(t+0.8);
+  src.connect(f); f.connect(g); g.connect(spatialDest(pos, 30, 1.0, true)); src.start(t); src.stop(t+0.8);
 }
 let longNoise = null, rainSrc = null, rainGainNode = null, sfxLimiter = null;
 // all sound effects go through one limiter, so a pile of explosions can't clip and crackle
@@ -2553,22 +2554,23 @@ function combatUpdate(dt){
 let sp3 = null;
 const s3p = new THREE.Vector3(), s3f = new THREE.Vector3(), s3u = new THREE.Vector3(), s3r = new THREE.Vector3();
 const s3q = new THREE.Quaternion(), s3d = new THREE.Vector3(), s3w = new THREE.Vector3();
-function setPos(p, x, y, z, smooth){
-  if (p.positionX){
-    if (smooth){ const t = actx.currentTime; p.positionX.setTargetAtTime(x,t,0.03); p.positionY.setTargetAtTime(y,t,0.03); p.positionZ.setTargetAtTime(z,t,0.03); }
-    else { p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; }
-  } else p.setPosition(x, y, z);
+// Plain values only. Scheduled automation (setTargetAtTime) keeps Chrome's panners on a per-sample path
+// that costs several times more, and every listener update recomputes every panner. Both helped starve
+// the audio thread on Quest when explosions stacked up.
+function setPos(p, x, y, z){
+  if (p.positionX){ p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; }
+  else p.setPosition(x, y, z);
 }
 function mkPanner(pos, ref, roll){
   const p = actx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
   p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 5000;
-  if (pos) setPos(p, pos.x, pos.y, pos.z, false);
+  if (pos) setPos(p, pos.x, pos.y, pos.z);
   return p;
 }
 // one-shot sounds send their output here: a panner at the sound's position once 3D sound is running
 // They borrow from a fixed pool (oldest first) rather than creating a panner per sound: HRTF panners are
 // the costliest node in Web Audio, and making one per laser shot piled up until the audio thread starved.
-const POOL_HRTF = 12, POOL_CHEAP = 4;
+const POOL_HRTF = 6, POOL_CHEAP = 10;
 function spatialDest(pos, ref, roll, cheap){
   if (!pos || !sp3) return sfxOut();
   const pool = cheap ? sp3.cheapPool : sp3.pool, now = actx.currentTime;
@@ -2579,7 +2581,7 @@ function spatialDest(pos, ref, roll, cheap){
   let e = pool[0]; for (const q of pool) if (q.used < e.used) e = q;
   e.used = now;
   e.p.refDistance = ref || 6; e.p.rolloffFactor = roll || 1.1;
-  setPos(e.p, pos.x, pos.y, pos.z, false);
+  setPos(e.p, pos.x, pos.y, pos.z);
   return e.p;
 }
 function noiseBurst(t, dur, f0, f1, q, vol, dest){
@@ -2593,7 +2595,7 @@ function sfxZip(pos){ noiseBurst(actx.currentTime, 0.28, 3600, 700, 2.5, 0.5, sp
 
 function initSpatial(){
   const bus = actx.createGain(); bus.gain.value = 1; bus.connect(sfxOut());
-  sp3 = {bus, pool:[], cheapPool:[], voices:[], drones:[], scanT:0, siren:null, sirenT: 10 + Math.random()*15, roof:null, tick:0};
+  sp3 = {bus, pool:[], cheapPool:[], voices:[], drones:[], posT:-1, booms:[], scanT:0, siren:null, sirenT: 10 + Math.random()*15, roof:null, tick:0};
   const noise = getLongNoise();
   for (let i=0;i<5;i++){
     const src = actx.createBufferSource(); src.buffer = noise; src.loop = true;
@@ -2646,12 +2648,15 @@ function assignVoices(list){
 }
 function makeDroneVoice(){
   const g = actx.createGain(); g.gain.value = 0;
-  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 4;
-  const lfo = actx.createOscillator(), lfoG = actx.createGain(); lfo.frequency.value = 5 + Math.random()*3; lfoG.gain.value = 170;
-  lfo.connect(lfoG); lfoG.connect(f.frequency);
-  const oscs = [72, 74.4].map(fr => { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr*(0.9 + Math.random()*0.2); o.connect(f); o.start(); return o; });
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 480; f.Q.value = 4;
+  // the wobble moves volume and pitch: sweeping the filter at audio rate made it recompute every sample
+  const wob = actx.createGain(); wob.gain.value = 0.7; f.connect(wob);
+  const lfo = actx.createOscillator(), lfoG = actx.createGain(), lfoP = actx.createGain();
+  lfo.frequency.value = 5 + Math.random()*3; lfoG.gain.value = 0.3; lfoP.gain.value = 35;
+  lfo.connect(lfoG); lfoG.connect(wob.gain); lfo.connect(lfoP);
+  const oscs = [72, 74.4].map(fr => { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr*(0.9 + Math.random()*0.2); lfoP.connect(o.detune); o.connect(f); o.start(); return o; });
   const wh = actx.createOscillator(), whG = actx.createGain(); wh.frequency.value = 1300 + Math.random()*300; whG.gain.value = 0.04; wh.connect(whG); whG.connect(g); wh.start();
-  lfo.start(); f.connect(g);
+  lfo.start(); wob.connect(g);
   const pan = mkPanner(null, 6, 1.2); g.connect(pan); pan.connect(sp3.bus);
   return {g, pan, live:false, srcs:[...oscs, wh, lfo], deadAt:0};
 }
@@ -2681,12 +2686,17 @@ function audio3dUpdate(dt){
   // the listener is your head: position and facing follow the camera (the headset in VR)
   camera.getWorldPosition(s3p); camera.getWorldQuaternion(s3q);
   s3f.set(0,0,-1).applyQuaternion(s3q); s3u.set(0,1,0).applyQuaternion(s3q); s3r.crossVectors(s3f, s3u);
-  const Ls = actx.listener;
-  if (Ls.positionX){
-    Ls.positionX.setTargetAtTime(s3p.x,t,0.015); Ls.positionY.setTargetAtTime(s3p.y,t,0.015); Ls.positionZ.setTargetAtTime(s3p.z,t,0.015);
-    Ls.forwardX.setTargetAtTime(s3f.x,t,0.015); Ls.forwardY.setTargetAtTime(s3f.y,t,0.015); Ls.forwardZ.setTargetAtTime(s3f.z,t,0.015);
-    Ls.upX.setTargetAtTime(s3u.x,t,0.015); Ls.upY.setTargetAtTime(s3u.y,t,0.015); Ls.upZ.setTargetAtTime(s3u.z,t,0.015);
-  } else { Ls.setPosition(s3p.x, s3p.y, s3p.z); Ls.setOrientation(s3f.x, s3f.y, s3f.z, s3u.x, s3u.y, s3u.z); }
+  // positions (listener and moving voices) update ~30 times a second, not every frame
+  const posTick = t - sp3.posT >= 1/30 || t < sp3.posT;
+  if (posTick){
+    sp3.posT = t;
+    const Ls = actx.listener;
+    if (Ls.positionX){
+      Ls.positionX.value = s3p.x; Ls.positionY.value = s3p.y; Ls.positionZ.value = s3p.z;
+      Ls.forwardX.value = s3f.x; Ls.forwardY.value = s3f.y; Ls.forwardZ.value = s3f.z;
+      Ls.upX.value = s3u.x; Ls.upY.value = s3u.y; Ls.upZ.value = s3u.z;
+    } else { Ls.setPosition(s3p.x, s3p.y, s3p.z); Ls.setOrientation(s3f.x, s3f.y, s3f.z, s3u.x, s3u.y, s3u.z); }
+  }
   sp3.bus.gain.setTargetAtTime(soundOn ? 1 : 0, t, 0.1);
   // passing traffic, with doppler
   sp3.scanT -= dt;
@@ -2694,11 +2704,12 @@ function audio3dUpdate(dt){
   for (const v of sp3.voices){
     if (!v.key){ v.g.gain.setTargetAtTime(0, t, 0.06); continue; }
     v.pos.addScaledVector(v.vel, mv);
-    setPos(v.pan, v.pos.x, v.pos.y, v.pos.z, !v.fresh);
+    if (!posTick && !v.fresh){ continue; }
+    setPos(v.pan, v.pos.x, v.pos.y, v.pos.z);
     s3d.copy(s3p).sub(v.pos); const dist = s3d.length() || 1;
     const vr = Math.max(-120, Math.min(120, v.vel.dot(s3d)/dist)), dop = 343/(343 - vr);
-    v.src.playbackRate.setTargetAtTime(dop, t, 0.05);
-    v.bp.frequency.setTargetAtTime(v.f0*dop, t, 0.05);
+    v.src.playbackRate.value = dop;
+    v.bp.frequency.value = v.f0*dop;                      // plain values: an automated filter recomputes per sample
     v.hum.frequency.setTargetAtTime(v.h0*dop, t, 0.05);
     v.g.gain.setTargetAtTime(v.kind ? 0.55 : 0.4, t, v.fresh ? 0.08 : 0.15);
     v.fresh = false;
@@ -2707,9 +2718,13 @@ function audio3dUpdate(dt){
   if (typeof drones !== 'undefined'){
     for (let i=0;i<drones.length;i++){
       const d = drones[i]; let dv = sp3.drones[i];
-      if (d.active && !dv) dv = sp3.drones[i] = makeDroneVoice();
+      if (d.active && !dv && sp3.drones.filter(Boolean).length < 4) dv = sp3.drones[i] = makeDroneVoice();
       if (!dv) continue;
-      if (d.active){ setPos(dv.pan, d.pos.x, d.pos.y, d.pos.z, dv.live); dv.live = true; dv.deadAt = 0; dv.g.gain.setTargetAtTime(0.16, t, 0.2); }
+      if (d.active){
+        if (posTick || !dv.live) setPos(dv.pan, d.pos.x, d.pos.y, d.pos.z);
+        if (!dv.live) dv.g.gain.setTargetAtTime(0.16, t, 0.2);
+        dv.live = true; dv.deadAt = 0;
+      }
       else {
         if (dv.live){ dv.g.gain.setTargetAtTime(0, t, 0.05); dv.live = false; }
         if (!dv.deadAt) dv.deadAt = t;
@@ -2723,7 +2738,7 @@ function audio3dUpdate(dt){
   if (!sp3.siren && sp3.sirenT <= 0) startSiren();
   if (sp3.siren){
     const s = sp3.siren; s.life -= mv; s.pos.addScaledVector(s.vel, mv);
-    setPos(s.pan, s.pos.x, s.pos.y, s.pos.z, true);
+    if (posTick) setPos(s.pan, s.pos.x, s.pos.y, s.pos.z);
     s3d.copy(s3p).sub(s.pos); const dist = s3d.length() || 1, vr = s.vel.dot(s3d)/dist;
     s.osc.detune.setTargetAtTime(1200*Math.log2(343/(343 - vr)), t, 0.1);
     if (s.life <= 0){
@@ -2739,13 +2754,13 @@ function audio3dUpdate(dt){
     const s = actx.createBufferSource(); s.buffer = getLongNoise(); s.loop = true;
     const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650;
     const g = actx.createGain(); g.gain.value = 0;
-    const pan = mkPanner(null, 1, 1);
+    const pan = mkPanner(null, 1, 1); pan.panningModel = 'equalpower';
     s.connect(lp); lp.connect(g); g.connect(pan); pan.connect(sp3.bus); s.start(0, Math.random()*2.5);
     sp3.roof = {g, pan};
   }
   if (sp3.roof){
     s3w.copy(s3p).addScaledVector(s3u, 0.55);
-    setPos(sp3.roof.pan, s3w.x, s3w.y, s3w.z, true);
+    if (posTick) setPos(sp3.roof.pan, s3w.x, s3w.y, s3w.z);
     sp3.roof.g.gain.setTargetAtTime(roofAmt*0.45, t, 0.3);
     if (roofAmt > 0.05){
       sp3.tick -= dt;
