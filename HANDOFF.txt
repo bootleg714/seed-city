@@ -276,6 +276,39 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
  and +30 shield. Kill: 100 x wave. Player bolts get a slight aim assist
  (within ~6 degrees). Best score per seed. Owner was happy with balance.
 
+ Dogfight (desktop only, third session). Online multiplayer, peer to
+ peer. Code: the "Dogfight" block just before the 3D sound section.
+   Network: PeerJS 1.5.4, loaded from jsdelivr only when Dogfight is
+   opened. The host registers id "seedcity-df-<CODE>" (4 chars, no 0/O/1/I)
+   on the free PeerJS cloud server, which only does matchmaking; data then
+   flows over WebRTC data channels (reliable, JSON). PeerJS's defaults
+   include STUN and TURN servers for awkward networks.
+   Topology: star. Joiners connect only to the host; the host forwards
+   every message to the others and overwrites the sender id (no spoofing).
+   Messages: hello -> welcome {id, seed, host pos, roster, kills, deaths};
+   join / leave; st (position, yaw/pitch/roll, velocity, dead flag, 20/s);
+   fire (visual only); hit {to, dmg, point}; dead {id, by}; full.
+   Sync: the host's seed only; joiners regenerate the city. Time of day,
+   weather and traffic are local (traffic is not synced).
+   Remote cars: player geometry in the pilot's colour (p0 Cyan, p1 Amber,
+   Magenta, Lime, Violet, Red), drawn MP_DELAY = 0.1 s in the past,
+   interpolated between snapshots, coasting up to 0.25 s if late.
+   Hits: shooter-authoritative. Your bolts test the 5-sphere HITBOX (nose,
+   middle, tail, both flanks, in car space) of the cars you see; the victim
+   owns its shield (12 damage per hit, regen 8/s after 3 s), announces its
+   own death, respawns after 3 s near the nearest pilot with 2 s grace.
+   Links silent for 6 s count as gone. N and the seed box are disabled
+   during a match. Not in VR yet.
+   Testing without internet: test copies inject a PeerJS stand-in
+   (window.Peer over BroadcastChannel, same API, 60 ms fake latency) and
+   are served from localhost so several tabs share it. This sandbox draws
+   the game at ~1 fps, so test copies also shrink the world (R = 1), cut
+   traffic, and raise MP_TIMEOUT. A 20-check script covered host, join,
+   seed sync, positions, hits, kill credit, respawn, a third pilot via the
+   relay, leaving, a wrong code and the host quitting. The real PeerJS
+   connection could not be reached from the sandbox: first tested by the
+   owner on real machines.
+
  Guide arrow. A flat 3D arrow in the overlay (always on top), upper middle
  of the view, pointing at the target. Desktop: locked to the view. VR: lives
  in the rig (moves with you exactly) with light smoothing on head turns

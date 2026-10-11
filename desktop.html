@@ -92,6 +92,9 @@ details b{color:var(--fg);font-weight:600}
 .mbtn.small{grid-column:1/-1;padding:10px 14px}
 .mbtn.half{padding:10px 14px}
 .mbtn.off{opacity:.45;cursor:default;pointer-events:none}
+.mcode{box-sizing:border-box;width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--fg);font:600 22px/1 var(--f-data);letter-spacing:.35em;text-align:center;text-transform:uppercase}
+.mcode:focus{outline:2px solid var(--amber);outline-offset:2px}
+.mcode::placeholder{color:var(--muted);letter-spacing:.2em;font-size:14px}
 .racehud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 16px);left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 16px;font:600 18px/1.3 var(--f-data);font-variant-numeric:tabular-nums;text-align:center;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .racehud small{display:block;font:500 11px/1.3 var(--f-data);letter-spacing:.12em;color:var(--muted)}
 @media (max-width:640px){
@@ -1415,6 +1418,7 @@ function fireBolt(){
   bolts.push({p, v, life:1.4});
   if (bolts.length > BOLT_MAX) bolts.shift();
   sfxZap(p);
+  if (game === 'dogfight') mpFire(p, v);
 }
 // cars live on the GPU, so recompute their positions here with the same formula the shader uses
 function carHit(a,b){
@@ -1448,6 +1452,7 @@ function updateBolts(dt){
     let t = segBoxes(tA, tB, 0);
     if (tB.y < 0 && tA.y >= 0) t = Math.min(t, tA.y/(tA.y-tB.y));
     if (game === 'combat'){ const dh = droneHit(tA, tB); if (dh && dh.t <= t){ killDrone(dh.d); bolts.splice(n,1); continue; } }
+    if (game === 'dogfight'){ const ph = pilotHit(tA, tB); if (ph && ph.t <= t){ tA.lerp(tB, ph.t); mpHitPilot(ph.r, tA); bolts.splice(n,1); continue; } }
     const car = carHit(tA, tB);
     if (car && car.t <= t){
       car.set.P.Ca[car.i*4+2] = 9; car.set.attr.needsUpdate = true;      // hide the car
@@ -1776,9 +1781,10 @@ function timeName(){ const t = TIME_ORDER.find(k=>PRESETS[k]===timeTarget) || 'd
 function cycleTime(){ const i = TIME_ORDER.findIndex(k=>PRESETS[k]===timeTarget); setTime(TIME_ORDER[(i+1)%3]); }
 document.querySelectorAll('#camSeg button').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.v)));
 document.querySelectorAll('#timeSeg button').forEach(b=>b.addEventListener('click',()=>setTime(b.dataset.v)));
-function newCity(){ const s = 1+Math.floor(Math.random()*99999); $('#seed').value = s; regenerate(s); }
+function newCity(){ if (game === 'dogfight') return;   // everyone in a room must keep the host's city
+  const s = 1+Math.floor(Math.random()*99999); $('#seed').value = s; regenerate(s); }
 $('#newCity').addEventListener('click', newCity);
-$('#seed').addEventListener('change', ()=>{ const s = parseInt($('#seed').value,10); if (s > 0) regenerate(s); });
+$('#seed').addEventListener('change', ()=>{ if (game === 'dogfight'){ $('#seed').value = SEED; return; } const s = parseInt($('#seed').value,10); if (s > 0) regenerate(s); });
 $('#traffic').addEventListener('input', e=>{ U.uTraffic.value = e.target.value/100; $('#trafficOut').textContent = e.target.value+'%'; });
 $('#speed').addEventListener('input', e=>{ speed = +e.target.value; $('#speedOut').textContent = speed+' m/s'; });
 const panel = $('#panel'), ptoggle = $('#ptoggle');
@@ -1812,7 +1818,7 @@ const qTmp = new THREE.Quaternion();
 function pressed(){ return false; }
 function buzz(){}
 /* ---------- game modes: menu, free flight, races ---------- */
-let game = 'menu', page = 'main', menuHover = null;
+let game = 'menu', page = 'main', menuHover = null, mpLastCode = '';
 let race = null, raceK = 1, lastResult = null;
 const racePrev = new THREE.Vector3();
 const DIRS = [[0,-1],[1,0],[0,1],[-1,0]];
@@ -1905,7 +1911,7 @@ function startFree(){
 }
 function hideRace(){ gateMeshes.forEach(m=>m.visible = false); gateDisc.visible = false; arrow.visible = false; $('#raceHud').hidden = true; raceHudMesh.visible = false; }
 function enterMenu(p){
-  game = 'menu'; page = p || 'main'; race = null; hideRace(); courierHide(); cour = null; combatClear(); cmb = null;
+  game = 'menu'; page = p || 'main'; race = null; hideRace(); courierHide(); cour = null; combatClear(); cmb = null; mpLeave();
   if (renderer.xr.isPresenting){ fly.pos.y = Math.max(fly.pos.y, 70); fly.vel.set(0,0,0); }
   else if (mode === 'fly') setMode('drone');
   showMenu(true);
@@ -1919,6 +1925,7 @@ function finishRace(){
 }
 function raceUpdate(dt){
   if (game === 'combat'){ combatUpdate(dt); return; }
+  if (game === 'dogfight'){ mpUpdate(dt); return; }
   if (game === 'courier'){ courierUpdate(dt); return; }
   if (game !== 'race' || !race) return;
   if (race.state === 'count'){
@@ -1978,11 +1985,16 @@ function menuModel(){
   if (page === 'races') return {title:'RACES', sub:'Seed ' + SEED + ' grows these courses. Fly through the rings in order.', items:[1,2,3].map(k=>{ const b = getBest(k); return {id:'course'+k, label:'Course ' + k, sub: b !== null ? 'Best ' + fmtT(b) : 'No time yet'}; }).concat([{id:'back', label:'Back', small:true}])};
   if (page === 'results' && lastResult) return {title:'FINISH', big: fmtT(lastResult.t), rec: lastResult.rec ? 'NEW RECORD' : 'BEST ' + fmtT(lastResult.best), sub:'Course ' + lastResult.k + ' on seed ' + SEED,
     items:[{id:'retry', label:'Race again', sub:'Same course'}, {id:'next', label:'Next course', sub:'Course ' + (lastResult.k%3+1)}, {id:'menu', label:'Main menu', small:true}]};
+  if (page === 'dogfight') return {title:'DOGFIGHT', sub:'Fly against friends online. One pilot hosts a room and shares its four-letter code; the others type it in. Everyone flies in the host\u2019s city. Up to ' + MP_MAX + ' pilots.', input:true,
+    items:[{id:'dfhost', label:'Host a room', sub:'Get a code to share'}, {id:'dfjoin', label:'Join a room', sub:'Type the code above, then click'}, {id:'back', label:'Back', small:true}]};
+  if (page === 'dfwait') return {title:'DOGFIGHT', sub: mpStatus, items:[{id:'dfcancel', label:'Cancel', small:true}]};
+  if (page === 'dferr') return {title:'DOGFIGHT', sub: mpErr, items:[{id:'dogfight', label:'Back to Dogfight', small:true}, {id:'menu', label:'Main menu', small:true}]};
   return {title:'SEED CITY', sub:'Pick how you want to fly. The city keeps living behind this menu.', items:[
     {id:'free', label:'Free Flight', sub:'Fly anywhere. No rules.'},
     {id:'races', label:'Races', sub:'Checkpoint courses grown from the seed'},
     {id:'combat', label:'Combat', sub: combatSub()},
     {id:'courier', label:'Courier', sub: courierSub()},
+    {id:'dogfight', label:'Dogfight', sub:'Online: fly against friends'},
     {id:'newcity', label:'New city', sub:'Seed ' + SEED, small:true, half:true},
     {id:'music', label:'Music', sub: musicLevelName(), small:true, half:true},
     {id:'weather', label:'Weather', sub: rainTarget > 0 ? 'Rain' : 'Clear', small:true, half:true},
@@ -1991,6 +2003,10 @@ function menuModel(){
 function menuAction(id){
   if (id === 'combat' || id === 'fight'){ startCombat(); return; }
   if (id === 'courier' || id === 'shift'){ startCourier(); return; }
+  if (id === 'dogfight'){ page = 'dogfight'; showMenu(true); return; }
+  if (id === 'dfhost'){ mpHost(0); return; }
+  if (id === 'dfjoin'){ const el = $('#mpCode'); mpJoin(el ? el.value : ''); return; }
+  if (id === 'dfcancel'){ mpLeave(); page = 'dogfight'; showMenu(true); return; }
   if (id === 'free') startFree();
   else if (id === 'races'){ page = 'races'; showMenu(true); }
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
@@ -2012,10 +2028,15 @@ function buildMenuDom(){
   const md = menuModel(), card = $('#menucard');
   let h = '<p class="mt">' + md.title + '</p>';
   if (md.big) h += '<div class="big">' + md.big + '</div><div class="rec">' + md.rec + '</div>';
-  h += '<p class="ms">' + md.sub + '</p><div class="mgrid">';
+  h += '<p class="ms">' + md.sub + '</p>';
+  if (md.input) h += '<input id="mpCode" class="mcode" maxlength="4" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code" value="' + (mpLastCode || '') + '">';
+  h += '<div class="mgrid">';
   for (const it of md.items) h += '<button class="mbtn' + (it.small && !it.half ? ' small' : '') + (it.half ? ' half' : '') + (it.off ? ' off' : '') + '" data-id="' + it.id + '"' + (it.off ? ' disabled' : '') + '><b>' + it.label + '</b>' + (it.sub ? '<span>' + it.sub + '</span>' : '') + '</button>';
   card.innerHTML = h + '</div>';
   card.querySelectorAll('.mbtn').forEach(b => b.addEventListener('click', () => { audioUnlock(); menuAction(b.dataset.id); }));
+  const code = $('#mpCode');
+  if (code){ code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); mpLastCode = code.value; });
+             code.addEventListener('keydown', e => { if (e.key === 'Enter'){ audioUnlock(); menuAction('dfjoin'); } }); }
 }
 const MW = 1024, MH = 720;
 const menuCanvas = document.createElement('canvas'); menuCanvas.width = MW; menuCanvas.height = MH;
@@ -2555,6 +2576,340 @@ function combatUpdate(dt){
   else { const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>'; }
 }
 
+/* ---------- Dogfight: online multiplayer, peer to peer ----------
+   How it works, in short:
+   - One pilot HOSTS. Their browser registers the id "seedcity-df-<CODE>" with the free PeerJS
+     matchmaking server, which only introduces browsers; the game data then flows directly
+     between browsers over WebRTC data channels.
+   - Others JOIN with the code. Every joiner connects to the host only (a "star"). The host
+     forwards each message to everyone else, so all pilots see each other.
+   - The city is never sent: the host sends its seed and every browser grows the same city.
+   - Each pilot sends its own position ~20 times a second. Other cars are drawn 0.1 s in the
+     past and smoothed between updates (interpolation), so they glide instead of jumping.
+   - Hits are decided by the shooter: your lasers are tested against the 5-sphere hitbox of the
+     cars you see, and a hit message goes to the victim, who owns its shield and announces its
+     own death. Simple and fair enough among friends (a cheater could fake hits). */
+const MP_PREFIX = 'seedcity-df-', MP_MAX = 6, MP_DELAY = 0.1, MP_SEND = 1/20, MP_TIMEOUT = 6, MP_DMG = 12;
+const MP_PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+const PILOTS = [['Cyan',[0.2,0.85,1.0]],['Amber',[1.0,0.6,0.15]],['Magenta',[1.0,0.25,0.75]],['Lime',[0.5,1.0,0.25]],['Violet',[0.6,0.4,1.0]],['Red',[1.0,0.22,0.18]]];
+// the hitbox: five spheres in car space (x nose, y up, z right): nose, middle, tail, right and left flanks
+const HITBOX = [[1.9,0,0,1.0],[0.2,0.15,0,1.15],[-1.9,0.05,0,1.0],[0,-0.1,0.95,0.85],[0,-0.1,-0.95,0.85]];
+let mp = null, mpStatus = '', mpErr = '';
+const mpV = new THREE.Vector3(), mpV2 = new THREE.Vector3();
+const pilotIdx = id => parseInt(String(id).slice(1), 10) % PILOTS.length;
+const pilotName = id => PILOTS[pilotIdx(id)][0];
+const r2 = v => Math.round(v*100)/100;
+// other players' shots: the same streak as the drones' bolts, purely visual (the shooter decides hits)
+const RB_MAX = 96, rbolts = [];
+const rboltMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), mk(BOLT_V, EBOLT_F, additive), RB_MAX);
+rboltMesh.count = 0; rboltMesh.frustumCulled = false; scene.add(rboltMesh);
+
+function loadPeerJS(){
+  return new Promise((res, rej) => {
+    const ready = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+    if (ready()) return res(ready());
+    const s = document.createElement('script'); s.src = MP_PEERJS;
+    s.onload = () => ready() ? res(ready()) : rej(new Error('the networking library did not start'));
+    s.onerror = () => rej(new Error('could not download the networking library (check your connection)'));
+    document.head.appendChild(s);
+  });
+}
+const peerOpts = () => window.SEEDCITY_PEER_OPTS || {debug: 0};
+function mpNewCode(){ const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i=0;i<4;i++) c += A[Math.floor(Math.random()*A.length)]; return c; }
+function mpState(role, code, peer){
+  return {role, code, peer, conns:new Map(), conn:null, myId: role === 'host' ? 'p0' : null, nextId:1, players:new Map(),
+          kills:{}, deaths:{}, shield:100, lastHit:-9, dead:false, deadT:0, inv:0, t:0, sendT:0, hostLast:0, started:false, msg:'', msgT:0};
+}
+function mpFail(text){ mpErr = text; mpLeave(); page = 'dferr'; if (game !== 'menu') enterMenu('dferr'); else showMenu(true); }
+function mpWait(text){ mpStatus = text; page = 'dfwait'; showMenu(true); }
+
+/* hosting: grab a free room code, then wait for pilots while already flying */
+async function mpHost(attempt){
+  mpLeave(); mpWait('Opening a room…');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return mpFail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'dfwait') return;                                    // cancelled while loading
+  const code = mpNewCode(), peer = new P(MP_PREFIX + code, peerOpts());
+  mp = mpState('host', code, peer);
+  peer.on('open', () => { if (mp && mp.peer === peer) mpBegin(null); });
+  peer.on('connection', conn => {
+    conn.on('data', d => mpRecv(d, conn));
+    conn.on('close', () => mpDrop(conn));
+    conn.on('error', () => mpDrop(conn));
+  });
+  peer.on('disconnected', () => { try{ if (!peer.destroyed) peer.reconnect(); }catch(_){} });   // lost the matchmaker: open links keep working
+  peer.on('error', err => {
+    if (!mp || mp.peer !== peer) return;
+    if (err.type === 'unavailable-id' && !mp.started && (attempt||0) < 4){ mpHost((attempt||0) + 1); return; }
+    if (!mp.started) mpFail('Couldn’t open a room (' + (err.type || 'error') + '). Try again in a moment.');
+  });
+}
+/* joining: connect to the host's id and say hello */
+async function mpJoin(code){
+  code = String(code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(code)){ mpErr = 'Room codes are four letters or digits.'; page = 'dferr'; showMenu(true); return; }
+  mpLeave(); mpWait('Joining room ' + code + '…');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return mpFail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'dfwait') return;
+  const peer = new P(peerOpts());
+  mp = mpState('client', code, peer);
+  const me = mp;
+  peer.on('open', () => {
+    if (mp !== me) return;
+    const conn = peer.connect(MP_PREFIX + code, {reliable:true, serialization:'json'});
+    me.conn = conn;
+    conn.on('open', () => conn.send({t:'hello', v:1}));
+    conn.on('data', d => mpRecv(d, conn));
+    conn.on('close', () => { if (mp === me) mpFail(me.started ? 'The host closed the room.' : 'The room closed before you got in.'); });
+    conn.on('error', () => { if (mp === me) mpFail('The connection to the host failed.'); });
+  });
+  peer.on('error', err => {
+    if (mp !== me) return;
+    if (err.type === 'peer-unavailable') mpFail('No room called ' + code + '. Check the code with the host.');
+    else mpFail('Connection problem (' + (err.type || 'error') + ').');
+  });
+  setTimeout(() => { if (mp === me && !me.started) mpFail('Couldn’t reach room ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
+}
+function mpLeave(){
+  if (!mp) return;
+  const m = mp; mp = null;
+  try{ m.peer.destroy(); }catch(_){}
+  for (const r of m.players.values()) scene.remove(r.mesh);
+  rbolts.length = 0; rboltMesh.count = 0;
+}
+function mpSend(d){
+  if (!mp) return;
+  if (mp.role === 'host'){ for (const c of mp.conns.keys()) if (c.open) c.send(d); }
+  else if (mp.conn && mp.conn.open) mp.conn.send(d);
+}
+function mpDrop(conn){
+  if (!mp || mp.role !== 'host') return;
+  const info = mp.conns.get(conn); if (!info) return;
+  mp.conns.delete(conn); try{ conn.close(); }catch(_){}
+  mpRemove(info.id); mpSend({t:'leave', id:info.id});
+}
+
+/* other pilots' cars: the player car's shape, painted in their colour */
+function mpAdd(id){
+  if (!mp || id === mp.myId || mp.players.has(id)) return mp && mp.players.get(id);
+  const c = PILOTS[pilotIdx(id)][1];
+  const mat = new THREE.ShaderMaterial({uniforms:Object.assign({uPlayerCol:{value:new THREE.Vector3(c[0],c[1],c[2])}, uEnv:{value:cubeRT.texture}, uEnvAmt:{value:1}}, U), vertexShader:PLAYER_V, fragmentShader:CAR_F, defines:{PLAYER:''}, extensions:{shaderTextureLOD:true}});
+  const mesh = new THREE.Mesh(playerGeo, mat);   // reflections borrow your car's view of the city: close enough to make them shine
+  mesh.rotation.order = 'YZX'; mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
+  const r = {id, mesh, snaps:[], last: performance.now()/1000, dead:false, pos:new THREE.Vector3(), live:false};
+  mp.players.set(id, r);
+  return r;
+}
+function mpRemove(id){ if (!mp) return; const r = mp.players.get(id); if (!r) return; scene.remove(r.mesh); mp.players.delete(id); mpFlash(pilotName(id).toUpperCase() + ' LEFT'); }
+function mpFlash(text){ if (mp){ mp.msg = text; mp.msgT = 2.5; } }
+
+/* every message lands here; the host also forwards it to the other pilots */
+function mpRecv(d, conn){
+  if (!mp || !d || typeof d !== 'object') return;
+  const now = performance.now()/1000;
+  if (mp.role === 'host'){
+    if (d.t === 'hello'){
+      if (mp.conns.size >= MP_MAX - 1){ conn.send({t:'full'}); setTimeout(() => { try{ conn.close(); }catch(_){} }, 300); return; }
+      const id = 'p' + (mp.nextId++);
+      mp.conns.set(conn, {id, last: now});
+      conn.send({t:'welcome', id, seed: SEED, host:{p:[r2(fly.pos.x), r2(fly.pos.y), r2(fly.pos.z)]}, roster:[...mp.players.keys()], kills: mp.kills, deaths: mp.deaths});
+      for (const c of mp.conns.keys()) if (c !== conn && c.open) c.send({t:'join', id});
+      mpAdd(id); mpFlash(pilotName(id).toUpperCase() + ' JOINED');
+      return;
+    }
+    const info = mp.conns.get(conn); if (!info) return;
+    info.last = now; d.id = info.id;                                 // a pilot can only speak for itself
+    for (const c of mp.conns.keys()) if (c !== conn && c.open) c.send(d);
+  } else mp.hostLast = now;
+  mpHandle(d, now);
+}
+function mpHandle(d, now){
+  const m = mp;
+  switch (d.t){
+    case 'welcome': {
+      if (m.started) return;
+      m.myId = d.id; m.kills = d.kills || {}; m.deaths = d.deaths || {};
+      if (d.seed && d.seed !== SEED){ $('#seed').value = d.seed; regenerate(d.seed); seedMusic(); }
+      mpAdd('p0'); for (const id of d.roster || []) mpAdd(id);
+      const hp = d.host && d.host.p ? new THREE.Vector3(d.host.p[0], d.host.p[1], d.host.p[2]) : null;
+      mpBegin(hp);
+      return;
+    }
+    case 'full': mpFail('That room is full (' + MP_MAX + ' pilots).'); return;
+    case 'join': mpAdd(d.id); mpFlash(pilotName(d.id).toUpperCase() + ' JOINED'); return;
+    case 'leave': mpRemove(d.id); return;
+    case 'st': {
+      const r = mpAdd(d.id); if (!r) return;
+      r.last = now; r.dead = !!d.d;
+      r.snaps.push({t: now, p: d.p, a: d.a, v: d.v});
+      if (r.snaps.length > 30) r.snaps.shift();
+      return;
+    }
+    case 'fire': {
+      if (d.id === m.myId || !d.p || !d.v) return;
+      rbolts.push({p: new THREE.Vector3(d.p[0], d.p[1], d.p[2]), v: new THREE.Vector3(d.v[0], d.v[1], d.v[2]), life: 1.4});
+      if (rbolts.length > RB_MAX) rbolts.shift();
+      sfxZap(rbolts[rbolts.length-1].p);
+      return;
+    }
+    case 'hit': {
+      if (d.to === m.myId) mpTakeHit(d.id, d.dmg);
+      else if (d.p) burst(mpV.set(d.p[0], d.p[1], d.p[2]), 14, 12, false);
+      return;
+    }
+    case 'dead': {
+      m.deaths[d.id] = (m.deaths[d.id] || 0) + 1; if (d.by) m.kills[d.by] = (m.kills[d.by] || 0) + 1;
+      const r = m.players.get(d.id);
+      if (r){ r.dead = true; burst(r.pos, 200, 34, true); camera.getWorldPosition(mpV2); sfxBoom(sp3 ? 0.9 : Math.max(0.2, 1 - r.pos.distanceTo(mpV2)/500), r.pos); }
+      if (d.by === m.myId){ mpFlash('YOU SHOT DOWN ' + pilotName(d.id).toUpperCase()); sfxWave(); }
+      else mpFlash((d.by ? (d.by === m.myId ? 'YOU' : pilotName(d.by).toUpperCase()) + ' SHOT DOWN ' : '') + pilotName(d.id).toUpperCase());
+      return;
+    }
+  }
+}
+
+/* into the air: hosts start where they are, joiners appear 150 m from the host, facing them */
+function mpBegin(near){
+  const m = mp; if (!m) return;
+  m.started = true;
+  game = 'dogfight'; showMenu(false); audioUnlock(); setMode('fly'); chaseInit = false;
+  if (near) mpSpawn(near); else { fly.pos.y = Math.max(fly.pos.y, 80); fly.vel.set(0,0,0); }
+  mpFlash(m.role === 'host' ? 'ROOM ' + m.code + ' IS OPEN' : 'JOINED ROOM ' + m.code);
+  sfxWave(); updateKeys();
+}
+// a spawn point in open sky (no tower underneath reaching that high), facing the point we spawn near
+function mpSpawn(near){
+  const c = near || fly.pos;
+  for (let k=0;k<14;k++){
+    const a = Math.random()*Math.PI*2, r = 140 + Math.random()*90, y = 60 + Math.random()*60;
+    mpV.set(c.x + Math.cos(a)*r, y, c.z + Math.sin(a)*r);
+    mpV2.set(mpV.x, 700, mpV.z);
+    if (segBoxes(mpV2, mpV, 6) >= 1 || k === 13){
+      if (k === 13) mpV.y = 320;
+      fly.pos.copy(mpV); fly.vel.set(0,0,0);
+      fly.yaw = fly.lastYaw = Math.atan2(-(c.x - mpV.x), -(c.z - mpV.z)); fly.pitch = 0; fly.roll = 0; fly.yawRate = 0;
+      chaseInit = false; return;
+    }
+  }
+}
+function mpTakeHit(from, dmg){
+  const m = mp; if (!m || m.dead || m.inv > 0) return;
+  m.shield -= Math.min(40, Math.max(1, dmg || MP_DMG)); m.lastHit = m.t;
+  shake = Math.max(shake, 0.6); sfxHurt();
+  if (m.shield <= 0){
+    m.shield = 0; m.dead = true; m.deadT = 3; fly.vel.set(0,0,0);
+    m.deaths[m.myId] = (m.deaths[m.myId] || 0) + 1; if (from) m.kills[from] = (m.kills[from] || 0) + 1;
+    burst(fly.pos, 200, 34, true); sfxBoom(1, fly.pos);
+    mpSend({t:'dead', id: m.myId, by: from || null});
+    mpFlash((from ? pilotName(from).toUpperCase() : 'SOMEONE') + ' SHOT YOU DOWN');
+  }
+}
+// called by your lasers (updateBolts): which pilot's hitbox does this segment cross first?
+function pilotHit(a, b){
+  if (!mp) return null;
+  let best = null;
+  const abx = b.x-a.x, aby = b.y-a.y, abz = b.z-a.z, ab2 = abx*abx+aby*aby+abz*abz || 1;
+  for (const r of mp.players.values()){
+    if (r.dead || !r.mesh.visible) continue;
+    if (r.pos.distanceToSquared(a) > (Math.sqrt(ab2) + 8)**2) continue;   // far from this step of the bolt
+    for (const s of HITBOX){
+      mpV.set(s[0], s[1], s[2]).applyMatrix4(r.mesh.matrixWorld);
+      const tt = Math.max(0, Math.min(1, ((mpV.x-a.x)*abx + (mpV.y-a.y)*aby + (mpV.z-a.z)*abz)/ab2));
+      const dx = a.x+abx*tt-mpV.x, dy = a.y+aby*tt-mpV.y, dz = a.z+abz*tt-mpV.z;
+      if (dx*dx+dy*dy+dz*dz < s[3]*s[3] && (!best || tt < best.t)) best = {t:tt, r};
+    }
+  }
+  return best;
+}
+function mpHitPilot(r, p){
+  burst(p, 26, 16, false); tone(1250, 0.06, 'square', 0.035, 900);
+  mpSend({t:'hit', id: mp.myId, to: r.id, dmg: MP_DMG, p:[r2(p.x), r2(p.y), r2(p.z)]});
+}
+function mpFire(p, v){ if (mp && mp.started) mpSend({t:'fire', id: mp.myId, p:[r2(p.x), r2(p.y), r2(p.z)], v:[Math.round(v.x), Math.round(v.y), Math.round(v.z)]}); }
+
+// where a remote car is MP_DELAY seconds ago, smoothed between the two updates around that moment
+function lerpAng(a, b, k){ let d = b - a; d = ((d + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI; return a + d*k; }
+function mpPose(r, t){
+  const s = r.snaps; if (!s.length) return false;
+  while (s.length > 2 && s[1].t <= t) s.shift();
+  let p, a;
+  if (t <= s[0].t || s.length === 1){
+    const q = s[s.length-1], dt = s.length === 1 ? Math.min(Math.max(0, t - q.t), 0.25) : 0;
+    p = [q.p[0] + q.v[0]*dt, q.p[1] + q.v[1]*dt, q.p[2] + q.v[2]*dt]; a = q.a;
+  } else if (t <= s[1].t){
+    const k = (t - s[0].t)/Math.max(1e-3, s[1].t - s[0].t);
+    p = [0,1,2].map(i => s[0].p[i] + (s[1].p[i] - s[0].p[i])*k);
+    a = [lerpAng(s[0].a[0], s[1].a[0], k), s[0].a[1] + (s[1].a[1]-s[0].a[1])*k, s[0].a[2] + (s[1].a[2]-s[0].a[2])*k];
+  } else {                                                           // updates are late: coast for up to 0.25 s
+    const q = s[1], dt = Math.min(t - q.t, 0.25);
+    p = [q.p[0] + q.v[0]*dt, q.p[1] + q.v[1]*dt, q.p[2] + q.v[2]*dt]; a = q.a;
+  }
+  r.pos.set(p[0], p[1], p[2]);
+  r.mesh.position.copy(r.pos);
+  r.mesh.rotation.set(a[2], a[0] + Math.PI/2, a[1]*0.6);
+  r.mesh.updateMatrixWorld(true);
+  return true;
+}
+
+function mpUpdate(dt){
+  const m = mp; if (!m || !m.started) return;
+  const now = performance.now()/1000;
+  m.t += dt; m.msgT -= dt; m.inv = Math.max(0, m.inv - dt);
+  // silent links count as gone
+  if (m.role === 'host'){ for (const [c, info] of [...m.conns]) if (now - info.last > MP_TIMEOUT) mpDrop(c); }
+  else if (now - m.hostLast > MP_TIMEOUT){ mpFail('Lost the connection to the host.'); return; }
+  // shot down: wait, then respawn with a fresh shield and two seconds of grace
+  if (m.dead){
+    m.deadT -= dt; fly.vel.set(0,0,0);
+    if (m.deadT <= 0){
+      let near = null, nd = 1e9;
+      for (const r of m.players.values()){ const d2 = r.pos.distanceToSquared(fly.pos); if (!r.dead && r.snaps.length && d2 < nd){ nd = d2; near = r.pos; } }
+      mpSpawn(near); m.dead = false; m.shield = 100; m.inv = 2;
+    }
+  } else if (m.t - m.lastHit > 3) m.shield = Math.min(100, m.shield + 8*dt);
+  // tell everyone where we are
+  m.sendT -= dt;
+  if (m.sendT <= 0){
+    m.sendT = MP_SEND;
+    mpSend({t:'st', id: m.myId, p:[r2(fly.pos.x), r2(fly.pos.y), r2(fly.pos.z)], a:[r2(fly.yaw), r2(fly.pitch), r2(fly.roll)], v:[r2(fly.vel.x), r2(fly.vel.y), r2(fly.vel.z)], d: m.dead ? 1 : 0});
+  }
+  // draw the others
+  let nearest = null, nd = 1e9;
+  for (const r of m.players.values()){
+    const ok = mpPose(r, now - MP_DELAY);
+    r.mesh.visible = ok && !r.dead;
+    if (r.mesh.visible){ const d = r.pos.distanceTo(fly.pos); if (d < nd){ nd = d; nearest = r; } }
+  }
+  // their shots fly until they hit a building or the street
+  for (let i=rbolts.length-1;i>=0;i--){
+    const b = rbolts[i]; b.life -= dt;
+    tA.copy(b.p); tB.copy(b.p).addScaledVector(b.v, dt);
+    const tw = segBoxes(tA, tB, 0);
+    if (tw < 1 || tB.y < 0){ tA.lerp(tB, Math.min(1, Math.max(0, tw))); burst(tA, 10, 10, false); rbolts.splice(i,1); continue; }
+    b.p.copy(tB); if (b.life <= 0) rbolts.splice(i,1);
+  }
+  for (let i=0;i<rbolts.length;i++){
+    const b = rbolts[i];
+    cbV2.copy(b.v).normalize(); cbQ.setFromUnitVectors(cbZ, cbV2);
+    cbV1.copy(b.p).addScaledVector(cbV2, -2.5);
+    cbM.compose(cbV1, cbQ, cbS); rboltMesh.setMatrixAt(i, cbM);
+  }
+  rboltMesh.count = rbolts.length; rboltMesh.instanceMatrix.needsUpdate = true;
+  // the arrow points at the nearest pilot
+  placeArrow(dt);
+  arrow.material.color.setHex(0xff5a4a);
+  if (nearest && !m.dead){ arrow.lookAt(nearest.pos); arrow.visible = true; } else arrow.visible = false;
+  // readout: scores on top, your state below
+  const ids = [m.myId, ...m.players.keys()];
+  const head = ids.map(id => (id === m.myId ? 'YOU' : pilotName(id).toUpperCase()) + ' ' + (m.kills[id] || 0)).join('  ·  ');
+  const bars = Math.round(m.shield/10);
+  let sub;
+  if (m.msgT > 0) sub = m.msg;
+  else if (m.dead) sub = 'SHOT DOWN  ·  BACK IN ' + Math.ceil(m.deadT);
+  else if (!m.players.size) sub = 'ROOM ' + m.code + '  ·  WAITING FOR PILOTS  ·  SHARE THE CODE';
+  else sub = 'ROOM ' + m.code + '  ·  SHIELD ' + '▮'.repeat(bars) + '▯'.repeat(10-bars) + (nearest ? '  ·  ' + pilotName(nearest.id).toUpperCase() + ' ' + Math.round(nd) + ' M' : '');
+  const el = $('#raceHud'); el.hidden = false; el.innerHTML = head + '<small>' + sub + '</small>';
+}
+
 /* ---------- 3D sound: positional traffic, sirens, lasers, explosions, drones and rain on the roof ---------- */
 let sp3 = null;
 const s3p = new THREE.Vector3(), s3f = new THREE.Vector3(), s3u = new THREE.Vector3(), s3r = new THREE.Vector3();
@@ -2779,6 +3134,7 @@ function audio3dUpdate(dt){
 }
 
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && game !== 'menu') enterMenu(); });
+{ const hm = location.hash.match(/room=([A-Za-z0-9]{4})/); if (hm){ mpLastCode = hm[1].toUpperCase(); setTimeout(() => mpJoin(mpLastCode), 300); } }
 enterMenu();
 
 /* ---------- loop ---------- */
@@ -2814,9 +3170,9 @@ function frame(now){
 
   if (mode === 'fly'){
     RAD = view === 'chase' ? 2.4 : 1.6;
-    flyStep(dt);
+    if (!(mp && mp.dead)) flyStep(dt);
     if (view === 'chase'){
-      playerCar.visible = true;
+      playerCar.visible = !(mp && mp.dead);
       playerCar.position.copy(fly.pos);
       playerCar.rotation.set(fly.roll, fly.yaw+Math.PI/2, fly.pitch*0.6);
       const fx = -Math.sin(fly.yaw), fz = -Math.cos(fly.yaw);
@@ -2840,7 +3196,7 @@ function frame(now){
         pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;
       }
       pbGeo.attributes.aOrig.needsUpdate = true; pbGeo.attributes.aDir.needsUpdate = true;
-      playerBeams.visible = beamsOn;
+      playerBeams.visible = beamsOn && !(mp && mp.dead);
       if (reflOn) updateEnv();
     } else {
       playerCar.visible = false; playerBeams.visible = false;
@@ -2881,7 +3237,7 @@ function frame(now){
   }
   bonkEl.style.opacity = (shake*0.85).toFixed(3);
   fireCd -= dt;
-  if (mode === 'fly' && input.fire && fireCd <= 0){ fireBolt(); fireCd = 0.11; }
+  if (mode === 'fly' && input.fire && fireCd <= 0 && !(mp && mp.dead)){ fireBolt(); fireCd = 0.11; }
   updateBolts(dt);
   updateParts(dt);
 
