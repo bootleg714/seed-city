@@ -1755,13 +1755,14 @@ document.querySelectorAll('.pad button').forEach(b=>{
 });
 const KEYS = {KeyW:'fwd',KeyS:'back',KeyA:'left',KeyD:'right',KeyE:'up',KeyQ:'down',ShiftLeft:'boost',ShiftRight:'boost',ArrowLeft:'tl',ArrowRight:'tr',ArrowUp:'tu',ArrowDown:'td'};
 window.addEventListener('keyup', e=>{ const k = KEYS[e.code]; if (k) input[k] = false; if (e.code === 'Space') input.fire = false; });
-document.querySelectorAll('#lightSeg button').forEach(b=>b.addEventListener('click',()=>{
-  const on = b.getAttribute('aria-pressed') !== 'true';
+function setLight(v, on){
+  const b = document.querySelector('#lightSeg [data-v="' + v + '"]'); if (!b || b.disabled) return;
   b.setAttribute('aria-pressed', String(on));
-  if (b.dataset.v === 'bloom') bloomOn = on;
-  else if (b.dataset.v === 'refl'){ reflOn = on; playerMat.uniforms.uEnvAmt.value = on ? 1 : 0; }
+  if (v === 'bloom') bloomOn = on;
+  else if (v === 'refl'){ reflOn = on; playerMat.uniforms.uEnvAmt.value = on ? 1 : 0; }
   else { beamsOn = on; for (const ch of chunks.values()) for (const o of ch.beamObjs) o.visible = on; }
-}));
+}
+document.querySelectorAll('#lightSeg button').forEach(b=>b.addEventListener('click',()=>setLight(b.dataset.v, b.getAttribute('aria-pressed') !== 'true')));
 if (!hdrOK){ const bb = document.querySelector('#lightSeg [data-v="bloom"]'); bb.setAttribute('aria-pressed','false'); bb.disabled = true; bb.title = 'Bloom needs WebGL2 with float render targets'; bloomOn = false; }
 { const f = $('#fog'), fo = $('#fogOut');
   let fv = 0.7; try{ const v = parseFloat(localStorage.getItem('seedcity.fog')); if (isFinite(v)) fv = Math.max(0, Math.min(1, v)); }catch(_){}
@@ -1791,7 +1792,8 @@ function newCity(){ if (game === 'dogfight') return;   // everyone in a room mus
   const s = 1+Math.floor(Math.random()*99999); $('#seed').value = s; regenerate(s); }
 $('#newCity').addEventListener('click', newCity);
 $('#seed').addEventListener('change', ()=>{ if (game === 'dogfight'){ $('#seed').value = SEED; return; } const s = parseInt($('#seed').value,10); if (s > 0) regenerate(s); });
-$('#traffic').addEventListener('input', e=>{ U.uTraffic.value = e.target.value/100; $('#trafficOut').textContent = e.target.value+'%'; });
+function setTraffic(pct){ $('#traffic').value = pct; U.uTraffic.value = pct/100; $('#trafficOut').textContent = pct + '%'; }
+$('#traffic').addEventListener('input', e=>setTraffic(+e.target.value));
 $('#speed').addEventListener('input', e=>{ speed = +e.target.value; $('#speedOut').textContent = speed+' m/s'; });
 const panel = $('#panel'), ptoggle = $('#ptoggle');
 function setCollapsed(c){ panel.classList.toggle('collapsed', c); ptoggle.setAttribute('aria-expanded', String(!c)); }
@@ -2610,7 +2612,29 @@ const MP_PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'
 const PILOTS = [['Cyan',[0.2,0.85,1.0]],['Amber',[1.0,0.6,0.15]],['Magenta',[1.0,0.25,0.75]],['Lime',[0.5,1.0,0.25]],['Violet',[0.6,0.4,1.0]],['Red',[1.0,0.22,0.18]]];
 // the hitbox: five spheres in car space (x nose, y up, z right): nose, middle, tail, right and left flanks
 const HITBOX = [[1.9,0,0,1.0],[0.2,0.15,0,1.15],[-1.9,0.05,0,1.0],[0,-0.1,0.95,0.85],[0,-0.1,-0.95,0.85]];
-let mp = null, mpStatus = '', mpErr = '', mpCopied = false;
+let mp = null, mpStatus = '', mpErr = '', mpCopied = false, mpFx = null;
+const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+const MP_TRAFFIC = 15;
+function mpFxOn(){
+  if (mpFx) return;
+  mpFx = {traffic: +$('#traffic').value, bloom: bloomOn, refl: reflOn, beams: beamsOn, rain: rainTarget > 0};
+  setTraffic(MP_TRAFFIC);                                         // fewer cars: other pilots are easier to pick out
+  if (IS_MOBILE){ setLight('bloom', false); setLight('refl', false); setLight('beams', false); if (mpFx.rain) setWeather('clear'); }   // a phone screen doesn't need them
+}
+function mpFxOff(){
+  if (!mpFx) return;
+  const f = mpFx; mpFx = null;
+  setTraffic(f.traffic);
+  if (IS_MOBILE){ setLight('bloom', f.bloom); setLight('refl', f.refl); setLight('beams', f.beams); if (f.rain) setWeather('rain'); }
+}
+// a soft glow around other pilots' cars, the same size on screen at any distance, so they stand out from traffic
+const glowTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const r = g.createRadialGradient(32,32,0, 32,32,32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.55)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+})();
 const mpLink = () => location.href.split('#')[0] + '#room=' + (mp ? mp.code : '');
 const mpV = new THREE.Vector3(), mpV2 = new THREE.Vector3();
 const pilotIdx = id => parseInt(String(id).slice(1), 10) % PILOTS.length;
@@ -2687,6 +2711,7 @@ async function mpJoin(code){
   setTimeout(() => { if (mp === me && !me.started) mpFail('Couldn’t reach room ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
 }
 function mpLeave(){
+  mpFxOff();
   if (!mp) return;
   const m = mp; mp = null;
   try{ m.peer.destroy(); }catch(_){}
@@ -2712,7 +2737,10 @@ function mpAdd(id){
   const mat = new THREE.ShaderMaterial({uniforms:Object.assign({uPlayerCol:{value:new THREE.Vector3(c[0],c[1],c[2])}, uEnv:{value:cubeRT.texture}, uEnvAmt:{value:1}}, U), vertexShader:PLAYER_V, fragmentShader:CAR_F, defines:{PLAYER:''}, extensions:{shaderTextureLOD:true}});
   const mesh = new THREE.Mesh(playerGeo, mat);   // reflections borrow your car's view of the city: close enough to make them shine
   mesh.rotation.order = 'YZX'; mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
-  const r = {id, mesh, snaps:[], last: performance.now()/1000, dead:false, pos:new THREE.Vector3(), live:false};
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({map: glowTex, color: new THREE.Color(c[0]*2.2, c[1]*2.2, c[2]*2.2), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, sizeAttenuation: false}));
+  glow.scale.set(0.13, 0.13, 1); glow.renderOrder = 4; glow.frustumCulled = false;
+  mesh.add(glow);                                                  // hidden with the car when it's shot down
+  const r = {id, mesh, glow, snaps:[], last: performance.now()/1000, dead:false, pos:new THREE.Vector3(), live:false};
   mp.players.set(id, r);
   return r;
 }
@@ -2789,7 +2817,7 @@ function mpHandle(d, now){
 function mpBegin(near){
   const m = mp; if (!m) return;
   m.started = true;
-  game = 'dogfight'; showMenu(false); audioUnlock(); setMode('fly'); chaseInit = false;
+  game = 'dogfight'; showMenu(false); audioUnlock(); setMode('fly'); chaseInit = false; mpFxOn();
   if (near) mpSpawn(near); else { fly.pos.y = Math.max(fly.pos.y, 80); fly.vel.set(0,0,0); }
   mpFlash(m.role === 'host' ? 'ROOM ' + m.code + ' IS OPEN' : 'JOINED ROOM ' + m.code);
   sfxWave(); updateKeys();
@@ -2895,7 +2923,10 @@ function mpUpdate(dt){
   for (const r of m.players.values()){
     const ok = mpPose(r, now - MP_DELAY);
     r.mesh.visible = ok && !r.dead;
-    if (r.mesh.visible){ const d = r.pos.distanceTo(fly.pos); if (d < nd){ nd = d; nearest = r; } }
+    if (r.mesh.visible){
+      const d = r.pos.distanceTo(fly.pos); if (d < nd){ nd = d; nearest = r; }
+      r.glow.material.opacity = Math.max(0.3, Math.min(1, (d - 20)/80))*(0.85 + 0.15*Math.sin(m.t*4));   // softer up close, where the car itself is easy to see
+    }
   }
   // their shots fly until they hit a building or the street
   for (let i=rbolts.length-1;i>=0;i--){

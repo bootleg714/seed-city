@@ -300,6 +300,12 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
    middle, tail, both flanks, in car space) of the cars you see; the victim
    owns its shield (12 damage per hit, regen 8/s after 3 s), announces its
    own death, respawns after 3 s near the nearest pilot with 2 s grace.
+   During a match: traffic drops to 15% (setTraffic) and, on phones and
+   tablets (IS_MOBILE: user agent / touch Mac), bloom, reflections,
+   beams and rain are switched off (setLight / setWeather); mpFxOff()
+   in mpLeave restores the player's own settings. Other pilots' cars carry
+   an additive glow sprite in their colour (constant screen size, softer
+   within ~100 m), parented to the car so it hides when they're down.
    Links silent for 6 s count as gone. N and the seed box are disabled
    during a match. Not in VR yet.
    Testing without internet: test copies inject a PeerJS stand-in
