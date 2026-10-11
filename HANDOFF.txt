@@ -1,14 +1,16 @@
 ================================================================================
  SEED CITY  —  PROJECT HANDOFF
- Browser game + Meta Quest VR build, made with Claude on 2026-10-09
- (original build session, then a second session the same evening)
+ Browser game + Meta Quest VR build, made with Claude on 2026-10-09/10
+ (original build session, a second session that evening, and a third
+ on 2026-10-10)
 ================================================================================
 
 This file explains what Seed City is, how it was built, how the code is laid
 out, and what to know before changing it. It is written for future-you or for
 whoever (human or AI) picks the project up next. It covers the original
-build session (first prototype to 3D sound) and the second session (VR
-rain, two rounds of audio performance fixes, lighter day/dusk fog).
+build session (first prototype to 3D sound), the second session (VR
+rain, two rounds of audio performance fixes, lighter day/dusk fog) and the
+third (desktop only: new player car, banked turning, online Dogfight).
 
 
 --------------------------------------------------------------------------------
@@ -71,6 +73,14 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
   18. Audio crackle fix, round 2: no automated positions, 30 Hz updates,
       cheap panners for lasers/booms, caps on drones and explosions
   19. Thinner day/dusk fog in both builds, far fade in VR
+ Third session (desktop only; the owner was editing the VR build):
+  20. New player car: faceted silver wedge, wheels folded flat under it
+      as glowing thrust discs; widened in steps to CAR_W 1.32
+  21. Banked turning: the car leans into turns instead of away
+  22. Online Dogfight: peer-to-peer rooms with codes, 5-sphere hitboxes,
+      shields, respawns; a Room Open screen; 15% traffic and glowing
+      opponents during a match; effects off on phones during a match
+  23. Safety nets for frame time, runaway flight and audio errors
 
 
 --------------------------------------------------------------------------------
@@ -586,6 +596,15 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
    31c7fe4  Fix audio crackle and dropouts after many combat kills
    be25f69  Cut audio load so explosion bursts no longer crackle
    68a8bad  Thinner fog in daytime and at dusk
+   72d420d  Update HANDOFF.txt with the second session
+ Third session:
+   25e125c  Desktop: new player car with fold-under hover wheels
+   3d624de  Desktop car: wider body, wheels recessed and tucked inward
+   6e0c42b  Desktop car: widen the body a bit more (CAR_W 1.22)
+   a30edd8  Desktop: bank into turns, and widen the car one more notch
+   da23e99  Desktop: online Dogfight mode (peer to peer, room codes)
+   86dfc4e  Dogfight: show the room code before flying, plus safety nets
+   97243de  Dogfight: 15% traffic, glowing opponents, effects off on phones
    (plus the commit that updates this handoff file)
  Commits are authored as bootleg714 <bootleg714@users.noreply.github.com>:
  GitHub rejects pushes that expose the owner's private email.
