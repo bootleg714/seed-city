@@ -811,38 +811,39 @@ let cubeFace = 0, reflOn = true;
 
 /* the player's own car: one mesh, so it can afford far more detail than traffic (sizes in metres, nose toward +x)
    A hard-edged faceted wedge in brushed metal; its four wheels are folded flat underneath and fly on glowing thrust discs. */
+const CAR_W = 1.12;   // body width scale (wheels are placed separately)
+const wide = g => { g.scale(1, 1, CAR_W); g.computeVertexNormals(); return g; };
 function wheelGeo(r, h, x, y, z){ const g = new THREE.CylinderGeometry(r, r, h, 18).toNonIndexed(); g.translate(x, y, z); g.computeVertexNormals(); return g; }
-const WHEELS = [[1.65,0.98],[1.65,-0.98],[-1.6,0.98],[-1.6,-0.98]];   // poking out past the sills so they read from the side
+const WHEELS = [[1.65,0.74],[1.65,-0.74],[-1.6,0.74],[-1.6,-0.74]];   // tucked in under the body, edges just showing
 const playerGeo = partGeo([
   // lower hull with chamfered bottom edges
-  [shapedBox(5.2,0.6,2.3, 0,-0.25,0, v=>{ if(v[1]>-0.25) v[2]*=0.97; else { v[2]*=0.9; v[0] += v[0]>0 ? -0.25 : 0.15; } }), 0],
+  [wide(shapedBox(5.2,0.6,2.3, 0,-0.25,0, v=>{ if(v[1]>-0.25) v[2]*=0.97; else { v[2]*=0.9; v[0] += v[0]>0 ? -0.25 : 0.15; } })), 0],
   // door band under the cabin, hood wedge sloping down to a flush nose, short rear deck
-  [shapedBox(2.8,0.3,2.2, -0.5,0.2,0, v=>{ if(v[1]>0.2) v[2]*=0.9; }), 0],
-  [shapedBox(1.7,0.3,2.2, 1.75,0.2,0, v=>{ if(v[1]>0.2){ v[2]*=0.9; if(v[0]>1.75) v[1] = 0.07; } }), 0],
-  [shapedBox(0.7,0.37,2.2, -2.25,0.235,0, v=>{ if(v[1]>0.235) v[2]*=0.9; }), 0],
+  [wide(shapedBox(2.8,0.3,2.2, -0.5,0.2,0, v=>{ if(v[1]>0.2) v[2]*=0.9; })), 0],
+  [wide(shapedBox(1.7,0.3,2.2, 1.75,0.2,0, v=>{ if(v[1]>0.2){ v[2]*=0.9; if(v[0]>1.75) v[1] = 0.07; } })), 0],
+  [wide(shapedBox(0.7,0.37,2.2, -2.25,0.235,0, v=>{ if(v[1]>0.235) v[2]*=0.9; })), 0],
   // faceted glass cabin and a flat roof plate
-  [shapedBox(2.8,0.6,2.0, -0.5,0.65,0, v=>{ if(v[1]>0.65){ v[0] = v[0]>-0.5 ? 0.0 : -1.0; v[2]*=0.72; } }), 1],
-  [shapedBox(1.1,0.05,1.46, -0.5,0.975,0, v=>{ if(v[1]>0.975) v[2]*=0.95; }), 0],
+  [wide(shapedBox(2.8,0.6,2.0, -0.5,0.65,0, v=>{ if(v[1]>0.65){ v[0] = v[0]>-0.5 ? 0.0 : -1.0; v[2]*=0.72; } })), 1],
+  [wide(shapedBox(1.1,0.05,1.46, -0.5,0.975,0, v=>{ if(v[1]>0.975) v[2]*=0.95; })), 0],
   // full-width light bars, front and back
-  [shapedBox(0.04,0.06,1.9, 2.61,-0.02,0), 7],
-  [shapedBox(0.04,0.07,2.0, -2.61,0.3,0), 6],
+  [wide(shapedBox(0.04,0.06,1.9, 2.61,-0.02,0)), 7],
+  [wide(shapedBox(0.04,0.07,2.0, -2.61,0.3,0)), 6],
   // side accent lines and dark skirts
-  [shapedBox(4.4,0.04,0.03, 0.1,-0.05,1.125), 2],
-  [shapedBox(4.4,0.04,0.03, 0.1,-0.05,-1.125), 2],
-  [shapedBox(4.0,0.2,0.03, -0.1,-0.36,1.085), 5],
-  [shapedBox(4.0,0.2,0.03, -0.1,-0.36,-1.085), 5],
+  [wide(shapedBox(4.4,0.04,0.03, 0.1,-0.05,1.125)), 2],
+  [wide(shapedBox(4.4,0.04,0.03, 0.1,-0.05,-1.125)), 2],
+  [wide(shapedBox(4.0,0.2,0.03, -0.1,-0.36,1.085)), 5],
+  [wide(shapedBox(4.0,0.2,0.03, -0.1,-0.36,-1.085)), 5],
   // twin rear thrusters
-  [shapedBox(0.05,0.18,0.5, -2.56,-0.2,0.6), 3],
-  [shapedBox(0.05,0.18,0.5, -2.56,-0.2,-0.6), 3],
+  [wide(shapedBox(0.05,0.18,0.5, -2.56,-0.2,0.6)), 3],
+  [wide(shapedBox(0.05,0.18,0.5, -2.56,-0.2,-0.6)), 3],
   // folded-flat wheels: strut, tyre, lit hub, and a thrust disc on the underside
   ...WHEELS.flatMap(([x,z]) => [
-    [shapedBox(0.5,0.12,0.18, x,-0.6,z*0.82), 5],
-    [wheelGeo(0.5,0.26, x,-0.74,z), 5],
-    [wheelGeo(0.17,0.28, x,-0.74,z), 2],
-    [wheelGeo(0.34,0.03, x,-0.88,z), 3]
+    [wheelGeo(0.5,0.26, x,-0.66,z), 5],          // recessed: the top of the tyre sits up inside the hull
+    [wheelGeo(0.17,0.28, x,-0.66,z), 2],
+    [wheelGeo(0.34,0.03, x,-0.8,z), 3]
   ]),
   // underglow between the wheels
-  [shapedBox(1.6,0.02,0.6, 0,-0.57,0), 4]
+  [wide(shapedBox(1.6,0.02,0.6, 0,-0.57,0)), 4]
 ]);
 const PLAYER_V = `
 attribute float aPart; uniform vec3 uPlayerCol;
@@ -2829,7 +2830,7 @@ function frame(now){
       playerCar.updateMatrixWorld(true);
       for (let sd=0; sd<2; sd++){
         const side = sd ? -1 : 1;
-        tA.set(2.62,-0.02,0.75*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
+        tA.set(2.62,-0.02,0.84*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
         tB.set(1,-0.07,0.05*side).transformDirection(playerCar.matrixWorld);
         pbO[sd*3]=tA.x; pbO[sd*3+1]=tA.y; pbO[sd*3+2]=tA.z;
         pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;
