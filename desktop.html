@@ -1289,6 +1289,7 @@ function clearLine(a,b){
 }
 const clampP = v => Math.max(-1.45, Math.min(1.45, v));
 const fly = {pos:new THREE.Vector3(), vel:new THREE.Vector3(), yaw:0, pitch:0, roll:0, lastYaw:0, yawRate:0};   // roll > 0 = banked right
+const flySafe = new THREE.Vector3(0, 80, 0);
 const input = {fire:false,fwd:false,back:false,left:false,right:false,up:false,down:false,boost:false,tl:false,tr:false,tu:false,td:false};
 const glide = {x:0, z:0};
 let shake = 0, bumps = 0;
@@ -1339,11 +1340,16 @@ function flyStep(dt){
   const n = Math.max(1, Math.ceil(fly.vel.length()*dt/0.8));
   let impact = 0;
   for (let i=0;i<n;i++){ fly.pos.addScaledVector(fly.vel, dt/n); impact = Math.max(impact, collide(fly.pos, fly.vel)); }
+  // safety net: flying tops out near 150 m/s, so anything faster, invalid or absurdly high is a fault: snap back to the last good spot
+  if (fly.vel.length() > 400) fly.vel.setLength(400);
+  if (!isFinite(fly.pos.x + fly.pos.y + fly.pos.z + fly.vel.x + fly.vel.y + fly.vel.z) || fly.pos.y > 3000){ fly.pos.copy(flySafe); fly.vel.set(0,0,0); }
+  else flySafe.copy(fly.pos);
   if (impact > 4){ shake = Math.min(1, Math.max(shake, impact/30)); bumps++; updateKeys(); }
   // bank into turns like an aircraft: the lean follows how fast you're turning (keys or mouse), plus a little for strafing
   let yr = (fly.yaw - fly.lastYaw)/Math.max(dt, 1e-3); fly.lastYaw = fly.yaw;
   if (Math.abs(yr) > 8) yr = 0;                            // ignore jumps when the heading is set directly
   fly.yawRate += (yr - fly.yawRate)*(1-Math.exp(-dt*6));
+  if (!isFinite(fly.yawRate)) fly.yawRate = 0;
   const bank = Math.max(-0.6, Math.min(0.6, -fly.yawRate*0.38 + s*0.22));
   fly.roll += (bank - fly.roll)*(1-Math.exp(-dt*4));
 }
@@ -1988,6 +1994,9 @@ function menuModel(){
   if (page === 'dogfight') return {title:'DOGFIGHT', sub:'Fly against friends online. One pilot hosts a room and shares its four-letter code; the others type it in. Everyone flies in the host\u2019s city. Up to ' + MP_MAX + ' pilots.', input:true,
     items:[{id:'dfhost', label:'Host a room', sub:'Get a code to share'}, {id:'dfjoin', label:'Join a room', sub:'Type the code above, then click'}, {id:'back', label:'Back', small:true}]};
   if (page === 'dfwait') return {title:'DOGFIGHT', sub: mpStatus, items:[{id:'dfcancel', label:'Cancel', small:true}]};
+  if (page === 'dfopen' && mp) return {title:'ROOM OPEN', big: mp.code, rec:'SHARE THIS CODE',
+    sub:'Friends open Seed City, pick Dogfight, type the code and click Join a room. You can start flying now: the room stays open and pilots can join any time. If someone joins while you are on this screen, you take off automatically.',
+    items:[{id:'dfcopy', label: mpCopied ? 'Link copied' : 'Copy invite link', sub: mpCopied ? 'Paste it to a friend: it joins this room' : 'Opens Seed City straight into this room'}, {id:'dffly', label:'Start flying', sub:'Code stays at the top of the screen'}, {id:'dfcancel', label:'Close room', small:true}]};
   if (page === 'dferr') return {title:'DOGFIGHT', sub: mpErr, items:[{id:'dogfight', label:'Back to Dogfight', small:true}, {id:'menu', label:'Main menu', small:true}]};
   return {title:'SEED CITY', sub:'Pick how you want to fly. The city keeps living behind this menu.', items:[
     {id:'free', label:'Free Flight', sub:'Fly anywhere. No rules.'},
@@ -2007,6 +2016,13 @@ function menuAction(id){
   if (id === 'dfhost'){ mpHost(0); return; }
   if (id === 'dfjoin'){ const el = $('#mpCode'); mpJoin(el ? el.value : ''); return; }
   if (id === 'dfcancel'){ mpLeave(); page = 'dogfight'; showMenu(true); return; }
+  if (id === 'dffly'){ if (mp && !mp.started) mpBegin(null); return; }
+  if (id === 'dfcopy'){
+    const done = () => { mpCopied = true; showMenu(true); };
+    try{ navigator.clipboard.writeText(mpLink()).then(done, () => { prompt('Copy this invite link:', mpLink()); }); }
+    catch(_){ prompt('Copy this invite link:', mpLink()); }
+    return;
+  }
   if (id === 'free') startFree();
   else if (id === 'races'){ page = 'races'; showMenu(true); }
   else if (id === 'back' || id === 'menu'){ page = 'main'; showMenu(true); }
@@ -2594,7 +2610,8 @@ const MP_PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'
 const PILOTS = [['Cyan',[0.2,0.85,1.0]],['Amber',[1.0,0.6,0.15]],['Magenta',[1.0,0.25,0.75]],['Lime',[0.5,1.0,0.25]],['Violet',[0.6,0.4,1.0]],['Red',[1.0,0.22,0.18]]];
 // the hitbox: five spheres in car space (x nose, y up, z right): nose, middle, tail, right and left flanks
 const HITBOX = [[1.9,0,0,1.0],[0.2,0.15,0,1.15],[-1.9,0.05,0,1.0],[0,-0.1,0.95,0.85],[0,-0.1,-0.95,0.85]];
-let mp = null, mpStatus = '', mpErr = '';
+let mp = null, mpStatus = '', mpErr = '', mpCopied = false;
+const mpLink = () => location.href.split('#')[0] + '#room=' + (mp ? mp.code : '');
 const mpV = new THREE.Vector3(), mpV2 = new THREE.Vector3();
 const pilotIdx = id => parseInt(String(id).slice(1), 10) % PILOTS.length;
 const pilotName = id => PILOTS[pilotIdx(id)][0];
@@ -2630,7 +2647,7 @@ async function mpHost(attempt){
   if (page !== 'dfwait') return;                                    // cancelled while loading
   const code = mpNewCode(), peer = new P(MP_PREFIX + code, peerOpts());
   mp = mpState('host', code, peer);
-  peer.on('open', () => { if (mp && mp.peer === peer) mpBegin(null); });
+  peer.on('open', () => { if (mp && mp.peer === peer){ mpCopied = false; page = 'dfopen'; showMenu(true); } });   // show the code before flying
   peer.on('connection', conn => {
     conn.on('data', d => mpRecv(d, conn));
     conn.on('close', () => mpDrop(conn));
@@ -2714,6 +2731,7 @@ function mpRecv(d, conn){
       conn.send({t:'welcome', id, seed: SEED, host:{p:[r2(fly.pos.x), r2(fly.pos.y), r2(fly.pos.z)]}, roster:[...mp.players.keys()], kills: mp.kills, deaths: mp.deaths});
       for (const c of mp.conns.keys()) if (c !== conn && c.open) c.send({t:'join', id});
       mpAdd(id); mpFlash(pilotName(id).toUpperCase() + ' JOINED');
+      if (!mp.started) mpBegin(null);
       return;
     }
     const info = mp.conns.get(conn); if (!info) return;
@@ -2918,6 +2936,7 @@ const s3q = new THREE.Quaternion(), s3d = new THREE.Vector3(), s3w = new THREE.V
 // that costs several times more, and every listener update recomputes every panner. Both helped starve
 // the audio thread on Quest when explosions stacked up.
 function setPos(p, x, y, z){
+  if (!(isFinite(x) && isFinite(y) && isFinite(z))) return;     // a bad number must never reach the audio engine
   if (p.positionX){ p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; }
   else p.setPosition(x, y, z);
 }
@@ -3048,7 +3067,7 @@ function audio3dUpdate(dt){
   s3f.set(0,0,-1).applyQuaternion(s3q); s3u.set(0,1,0).applyQuaternion(s3q); s3r.crossVectors(s3f, s3u);
   // positions (listener and moving voices) update ~30 times a second, not every frame
   const posTick = t - sp3.posT >= 1/30 || t < sp3.posT;
-  if (posTick){
+  if (posTick && isFinite(s3p.x + s3p.y + s3p.z + s3f.x + s3f.y + s3f.z + s3u.x + s3u.y + s3u.z)){
     sp3.posT = t;
     const Ls = actx.listener;
     if (Ls.positionX){
@@ -3068,6 +3087,7 @@ function audio3dUpdate(dt){
     setPos(v.pan, v.pos.x, v.pos.y, v.pos.z);
     s3d.copy(s3p).sub(v.pos); const dist = s3d.length() || 1;
     const vr = Math.max(-120, Math.min(120, v.vel.dot(s3d)/dist)), dop = 343/(343 - vr);
+    if (!isFinite(dop) || !isFinite(v.f0)) continue;
     v.src.playbackRate.value = dop;
     v.bp.frequency.value = v.f0*dop;                      // plain values: an automated filter recomputes per sample
     v.hum.frequency.setTargetAtTime(v.h0*dop, t, 0.05);
@@ -3150,7 +3170,7 @@ function lerpUniforms(k){
   }
 }
 function frame(now){
-  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  const dt = Math.min(0.05, Math.max(0, (now-last)/1000)); last = now;   // never negative: that would turn drag into a boost
   if (!paused){ simT += dt; if (mode !== 'fly') stepPath(speed*dt*(mode==='sky'?2:1)); }
   U.uTime.value = simT;
   lerpUniforms(1-Math.exp(-dt*2));
@@ -3227,7 +3247,7 @@ function frame(now){
   camera.rotation.z = roll - Math.cos(simT*0.23)*0.02;
   }
   raceUpdate(dt);
-  audio3dUpdate(dt);
+  try{ audio3dUpdate(dt); }catch(e){ if (!window.__audioWarned){ window.__audioWarned = true; console.warn('3D sound update skipped:', e); } }   // sound must never stop the game loop
   if (shake > 0.001){
     const t = now*0.06;
     camera.rotation.x += Math.sin(t*1.7)*shake*0.05;

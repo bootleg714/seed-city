@@ -288,6 +288,9 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
    Messages: hello -> welcome {id, seed, host pos, roster, kills, deaths};
    join / leave; st (position, yaw/pitch/roll, velocity, dead flag, 20/s);
    fire (visual only); hit {to, dmg, point}; dead {id, by}; full.
+   Hosting first shows a "ROOM OPEN" menu page (big code, Copy invite link,
+   Start flying); a pilot joining while the host is on it launches the
+   host automatically, since joiners time out without the host's updates.
    Sync: the host's seed only; joiners regenerate the city. Time of day,
    weather and traffic are local (traffic is not synced).
    Remote cars: player geometry in the pilot's colour (p0 Cyan, p1 Amber,
@@ -519,6 +522,14 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
    filters set with plain values. Offline benchmark of a heavy fight:
    ~44% of real time before, ~11% after. Rules: no setTargetAtTime on
    positions or biquad frequencies; no audio-rate modulation of filters.
+ - Third session: in one multi-window test a host's altitude ran away to
+   ~3e41 m, and the resulting non-finite numbers reached the audio engine
+   and threw inside the frame loop (which stops the loop: frame() calls
+   requestAnimationFrame at its end). Not reproduced in later runs; cause
+   unknown. Defences added: frame dt clamped to >= 0, flight speed capped
+   at 400 m/s, non-finite or > 3000 m positions snap back to flySafe,
+   non-finite audio values are skipped, and audio3dUpdate runs inside
+   try/catch so sound can never stop the game.
  - VR menu panel's renderOrder/visible/frustumCulled settings had ended up
    inside a // comment, so they never ran. Fixed when rain arrived in VR
    (otherwise transparent rain could draw over the menu).
