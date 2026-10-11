@@ -229,9 +229,12 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
  silver wedge with full-width light bars front and rear; its four wheels
  are folded flat underneath and fly on glowing thrust discs (part 3).
  Built in playerGeo from shapedBox pieces plus wheelGeo() cylinders.
- Body pieces are wrapped in wide(), which scales width by CAR_W (1.22);
+ Body pieces are wrapped in wide(), which scales width by CAR_W (1.32);
  wheels sit at z +-0.74, recessed so the tyre tops are inside the hull.
- Headlight beams start in the nose bar (2.62, -0.02, +-0.92). The VR
+ Headlight beams start in the nose bar (2.62, -0.02, +-1.0).
+ Banking: fly.roll (> 0 = banked right) follows the smoothed yaw rate
+ (keys or mouse) plus strafe input, max ~34 degrees; the car rolls by
+ fly.roll, the chase camera by -0.25x, the cockpit view by -0.5x. The VR
  build still has the original jet-style car (owner was working on VR).
 
  Fly physics: thrust along view direction, drag, boost x2.5. Collisions:

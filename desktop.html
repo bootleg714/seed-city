@@ -811,7 +811,7 @@ let cubeFace = 0, reflOn = true;
 
 /* the player's own car: one mesh, so it can afford far more detail than traffic (sizes in metres, nose toward +x)
    A hard-edged faceted wedge in brushed metal; its four wheels are folded flat underneath and fly on glowing thrust discs. */
-const CAR_W = 1.22;   // body width scale (wheels are placed separately)
+const CAR_W = 1.32;   // body width scale (wheels are placed separately)
 const wide = g => { g.scale(1, 1, CAR_W); g.computeVertexNormals(); return g; };
 function wheelGeo(r, h, x, y, z){ const g = new THREE.CylinderGeometry(r, r, h, 18).toNonIndexed(); g.translate(x, y, z); g.computeVertexNormals(); return g; }
 const WHEELS = [[1.65,0.74],[1.65,-0.74],[-1.6,0.74],[-1.6,-0.74]];   // tucked in under the body, edges just showing
@@ -1285,7 +1285,7 @@ function clearLine(a,b){
   return tMin >= 1 ? 1 : Math.max(0.12, tMin*0.92);
 }
 const clampP = v => Math.max(-1.45, Math.min(1.45, v));
-const fly = {pos:new THREE.Vector3(), vel:new THREE.Vector3(), yaw:0, pitch:0, roll:0};
+const fly = {pos:new THREE.Vector3(), vel:new THREE.Vector3(), yaw:0, pitch:0, roll:0, lastYaw:0, yawRate:0};   // roll > 0 = banked right
 const input = {fire:false,fwd:false,back:false,left:false,right:false,up:false,down:false,boost:false,tl:false,tr:false,tu:false,td:false};
 const glide = {x:0, z:0};
 let shake = 0, bumps = 0;
@@ -1337,8 +1337,12 @@ function flyStep(dt){
   let impact = 0;
   for (let i=0;i<n;i++){ fly.pos.addScaledVector(fly.vel, dt/n); impact = Math.max(impact, collide(fly.pos, fly.vel)); }
   if (impact > 4){ shake = Math.min(1, Math.max(shake, impact/30)); bumps++; updateKeys(); }
-  const side = fly.vel.x*cy - fly.vel.z*sy;
-  fly.roll += (Math.max(-0.35,Math.min(0.35,-side*0.008)) - fly.roll)*(1-Math.exp(-dt*4));
+  // bank into turns like an aircraft: the lean follows how fast you're turning (keys or mouse), plus a little for strafing
+  let yr = (fly.yaw - fly.lastYaw)/Math.max(dt, 1e-3); fly.lastYaw = fly.yaw;
+  if (Math.abs(yr) > 8) yr = 0;                            // ignore jumps when the heading is set directly
+  fly.yawRate += (yr - fly.yawRate)*(1-Math.exp(-dt*6));
+  const bank = Math.max(-0.6, Math.min(0.6, -fly.yawRate*0.38 + s*0.22));
+  fly.roll += (bank - fly.roll)*(1-Math.exp(-dt*4));
 }
 
 /* lasers, sparks and explosions */
@@ -1704,7 +1708,7 @@ function setMode(v){
   const was = mode;
   if (v === 'fly' && was !== 'fly'){
     fly.pos.copy(camera.position);
-    fly.yaw = camera.rotation.y; fly.pitch = clampP(camera.rotation.x); fly.roll = 0;
+    fly.yaw = fly.lastYaw = camera.rotation.y; fly.pitch = clampP(camera.rotation.x); fly.roll = 0; fly.yawRate = 0;
     fly.vel.set(-Math.sin(fly.yaw), 0, -Math.cos(fly.yaw)).multiplyScalar(speed*0.6);
     yawOff = 0; pitchOff = 0;
   } else if (v !== 'fly' && was === 'fly'){
@@ -2814,7 +2818,7 @@ function frame(now){
     if (view === 'chase'){
       playerCar.visible = true;
       playerCar.position.copy(fly.pos);
-      playerCar.rotation.set(-fly.roll*1.6, fly.yaw+Math.PI/2, fly.pitch*0.6);
+      playerCar.rotation.set(fly.roll, fly.yaw+Math.PI/2, fly.pitch*0.6);
       const fx = -Math.sin(fly.yaw), fz = -Math.cos(fly.yaw);
       const back = 15*Math.cos(fly.pitch*0.5);
       tmpV.set(fly.pos.x - fx*back, Math.max(1.5, fly.pos.y + 4.5 - fly.pitch*6), fly.pos.z - fz*back);
@@ -2826,11 +2830,11 @@ function frame(now){
       if (t2 < 1) chasePos.lerpVectors(fly.pos, chasePos, t2);
       camera.position.copy(chasePos);
       camera.lookAt(fly.pos.x + fx*10, fly.pos.y + 1.5 + Math.sin(fly.pitch)*10, fly.pos.z + fz*10);
-      camera.rotateZ(fly.roll*0.4);
+      camera.rotateZ(-fly.roll*0.25);          // the chase camera tilts a little with the bank
       playerCar.updateMatrixWorld(true);
       for (let sd=0; sd<2; sd++){
         const side = sd ? -1 : 1;
-        tA.set(2.62,-0.02,0.92*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
+        tA.set(2.62,-0.02,1.0*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
         tB.set(1,-0.07,0.05*side).transformDirection(playerCar.matrixWorld);
         pbO[sd*3]=tA.x; pbO[sd*3+1]=tA.y; pbO[sd*3+2]=tA.z;
         pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;
@@ -2841,7 +2845,7 @@ function frame(now){
     } else {
       playerCar.visible = false; playerBeams.visible = false;
       camera.position.copy(fly.pos);
-      camera.rotation.x = fly.pitch; camera.rotation.y = fly.yaw; camera.rotation.z = fly.roll;
+      camera.rotation.x = fly.pitch; camera.rotation.y = fly.yaw; camera.rotation.z = -fly.roll*0.5;
     }
   } else {
   playerCar.visible = false; playerBeams.visible = false;
