@@ -809,40 +809,40 @@ const cubeRT = new THREE.WebGLCubeRenderTarget(128, {type: hdrOK ? THREE.HalfFlo
 const cubeCam = new THREE.CubeCamera(1, 3000, cubeRT);
 let cubeFace = 0, reflOn = true;
 
-/* the player's own car: one mesh, so it can afford far more detail than traffic (sizes in metres, nose toward +x) */
+/* the player's own car: one mesh, so it can afford far more detail than traffic (sizes in metres, nose toward +x)
+   A hard-edged faceted wedge in brushed metal; its four wheels are folded flat underneath and fly on glowing thrust discs. */
+function wheelGeo(r, h, x, y, z){ const g = new THREE.CylinderGeometry(r, r, h, 18).toNonIndexed(); g.translate(x, y, z); g.computeVertexNormals(); return g; }
+const WHEELS = [[1.65,0.98],[1.65,-0.98],[-1.6,0.98],[-1.6,-0.98]];   // poking out past the sills so they read from the side
 const playerGeo = partGeo([
-  // fuselage and nose
-  [shapedBox(4.6,0.9,2.2, 0,-0.15,0, v=>{ if(v[0]>0){ v[2]*=0.62; if(v[1]>-0.15) v[1]-=0.12; } }), 0],
-  [shapedBox(1.2,0.5,1.3, 2.9,-0.3,0, v=>{ if(v[0]>2.9){ v[2]*=0.4; if(v[1]>-0.3) v[1]=-0.25; } }), 0],
-  [shapedBox(0.04,0.06,0.45, 3.51,-0.42,0), 7],
-  // canopy with a spine
-  [shapedBox(1.8,0.6,1.3, 0.3,0.55,0, v=>{ if(v[1]>0.5){ v[0] += v[0]>0.3 ? -0.55 : 0.25; v[2]*=0.78; } }), 1],
-  [shapedBox(1.1,0.06,0.12, 0.15,0.86,0), 5],
-  // engine pods
-  [shapedBox(3.4,0.6,0.7, -0.6,-0.35,1.35, v=>{ if(v[0]>0 && v[1]>-0.35) v[1]-=0.2; }), 0],
-  [shapedBox(3.4,0.6,0.7, -0.6,-0.35,-1.35, v=>{ if(v[0]>0 && v[1]>-0.35) v[1]-=0.2; }), 0],
-  [shapedBox(0.04,0.15,0.5, 1.12,-0.5,1.35), 5],
-  [shapedBox(0.04,0.15,0.5, 1.12,-0.5,-1.35), 5],
-  [shapedBox(0.04,0.1,0.42, 1.13,-0.33,1.35), 7],
-  [shapedBox(0.04,0.1,0.42, 1.13,-0.33,-1.35), 7],
-  [shapedBox(3.0,0.06,0.04, -0.6,-0.2,1.71), 2],
-  [shapedBox(3.0,0.06,0.04, -0.6,-0.2,-1.71), 2],
-  [shapedBox(0.3,0.5,0.55, -2.45,-0.35,1.35), 5],
-  [shapedBox(0.3,0.5,0.55, -2.45,-0.35,-1.35), 5],
-  [shapedBox(0.04,0.34,0.4, -2.61,-0.35,1.35), 3],
-  [shapedBox(0.04,0.34,0.4, -2.61,-0.35,-1.35), 3],
-  // rear: dark panel, thin tail bar, centre thruster
-  [shapedBox(0.04,0.5,1.6, -2.32,-0.2,0), 5],
-  [shapedBox(0.05,0.07,1.7, -2.34,0.2,0), 6],
-  [shapedBox(0.06,0.24,0.8, -2.35,-0.3,0), 3],
-  // spoiler on struts, with lit tips
-  [shapedBox(0.6,0.08,2.6, -2.0,0.75,0, v=>{ if(v[0]>-2.0) v[1]-=0.03; }), 0],
-  [shapedBox(0.2,0.42,0.08, -1.95,0.5,0.7), 5],
-  [shapedBox(0.2,0.42,0.08, -1.95,0.5,-0.7), 5],
-  [shapedBox(0.5,0.1,0.06, -2.0,0.75,1.33), 2],
-  [shapedBox(0.5,0.1,0.06, -2.0,0.75,-1.33), 2],
-  // underglow
-  [shapedBox(3.6,0.03,1.8, -0.2,-0.63,0), 4]
+  // lower hull with chamfered bottom edges
+  [shapedBox(5.2,0.6,2.3, 0,-0.25,0, v=>{ if(v[1]>-0.25) v[2]*=0.97; else { v[2]*=0.9; v[0] += v[0]>0 ? -0.25 : 0.15; } }), 0],
+  // door band under the cabin, hood wedge sloping down to a flush nose, short rear deck
+  [shapedBox(2.8,0.3,2.2, -0.5,0.2,0, v=>{ if(v[1]>0.2) v[2]*=0.9; }), 0],
+  [shapedBox(1.7,0.3,2.2, 1.75,0.2,0, v=>{ if(v[1]>0.2){ v[2]*=0.9; if(v[0]>1.75) v[1] = 0.07; } }), 0],
+  [shapedBox(0.7,0.37,2.2, -2.25,0.235,0, v=>{ if(v[1]>0.235) v[2]*=0.9; }), 0],
+  // faceted glass cabin and a flat roof plate
+  [shapedBox(2.8,0.6,2.0, -0.5,0.65,0, v=>{ if(v[1]>0.65){ v[0] = v[0]>-0.5 ? 0.0 : -1.0; v[2]*=0.72; } }), 1],
+  [shapedBox(1.1,0.05,1.46, -0.5,0.975,0, v=>{ if(v[1]>0.975) v[2]*=0.95; }), 0],
+  // full-width light bars, front and back
+  [shapedBox(0.04,0.06,1.9, 2.61,-0.02,0), 7],
+  [shapedBox(0.04,0.07,2.0, -2.61,0.3,0), 6],
+  // side accent lines and dark skirts
+  [shapedBox(4.4,0.04,0.03, 0.1,-0.05,1.125), 2],
+  [shapedBox(4.4,0.04,0.03, 0.1,-0.05,-1.125), 2],
+  [shapedBox(4.0,0.2,0.03, -0.1,-0.36,1.085), 5],
+  [shapedBox(4.0,0.2,0.03, -0.1,-0.36,-1.085), 5],
+  // twin rear thrusters
+  [shapedBox(0.05,0.18,0.5, -2.56,-0.2,0.6), 3],
+  [shapedBox(0.05,0.18,0.5, -2.56,-0.2,-0.6), 3],
+  // folded-flat wheels: strut, tyre, lit hub, and a thrust disc on the underside
+  ...WHEELS.flatMap(([x,z]) => [
+    [shapedBox(0.5,0.12,0.18, x,-0.6,z*0.82), 5],
+    [wheelGeo(0.5,0.26, x,-0.74,z), 5],
+    [wheelGeo(0.17,0.28, x,-0.74,z), 2],
+    [wheelGeo(0.34,0.03, x,-0.88,z), 3]
+  ]),
+  // underglow between the wheels
+  [shapedBox(1.6,0.02,0.6, 0,-0.57,0), 4]
 ]);
 const PLAYER_V = `
 attribute float aPart; uniform vec3 uPlayerCol;
@@ -2829,7 +2829,7 @@ function frame(now){
       playerCar.updateMatrixWorld(true);
       for (let sd=0; sd<2; sd++){
         const side = sd ? -1 : 1;
-        tA.set(1.2,-0.33,1.35*side).applyMatrix4(playerCar.matrixWorld);
+        tA.set(2.62,-0.02,0.75*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
         tB.set(1,-0.07,0.05*side).transformDirection(playerCar.matrixWorld);
         pbO[sd*3]=tA.x; pbO[sd*3+1]=tA.y; pbO[sd*3+2]=tA.z;
         pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;

@@ -225,6 +225,13 @@ rain, two rounds of audio performance fixes, lighter day/dusk fog).
  Fly views: Chase (third person, camera pulls in if a wall is in the way)
  and Cockpit.
 
+ Player car (desktop, since the third session): an original faceted
+ silver wedge with full-width light bars front and rear; its four wheels
+ are folded flat underneath and fly on glowing thrust discs (part 3).
+ Built in playerGeo from shapedBox pieces plus wheelGeo() cylinders.
+ Headlight beams start in the nose bar (2.62, -0.02, +-0.75). The VR
+ build still has the original jet-style car (owner was working on VR).
+
  Fly physics: thrust along view direction, drag, boost x2.5. Collisions:
  sphere vs building boxes from a per-chunk spatial index (cells map),
  sub-stepped at high speed, reflective bounce with shake + red flash +
