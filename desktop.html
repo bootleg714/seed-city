@@ -811,7 +811,7 @@ let cubeFace = 0, reflOn = true;
 
 /* the player's own car: one mesh, so it can afford far more detail than traffic (sizes in metres, nose toward +x)
    A hard-edged faceted wedge in brushed metal; its four wheels are folded flat underneath and fly on glowing thrust discs. */
-const CAR_W = 1.12;   // body width scale (wheels are placed separately)
+const CAR_W = 1.22;   // body width scale (wheels are placed separately)
 const wide = g => { g.scale(1, 1, CAR_W); g.computeVertexNormals(); return g; };
 function wheelGeo(r, h, x, y, z){ const g = new THREE.CylinderGeometry(r, r, h, 18).toNonIndexed(); g.translate(x, y, z); g.computeVertexNormals(); return g; }
 const WHEELS = [[1.65,0.74],[1.65,-0.74],[-1.6,0.74],[-1.6,-0.74]];   // tucked in under the body, edges just showing
@@ -2830,7 +2830,7 @@ function frame(now){
       playerCar.updateMatrixWorld(true);
       for (let sd=0; sd<2; sd++){
         const side = sd ? -1 : 1;
-        tA.set(2.62,-0.02,0.84*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
+        tA.set(2.62,-0.02,0.92*side).applyMatrix4(playerCar.matrixWorld);   // headlights in the nose light bar
         tB.set(1,-0.07,0.05*side).transformDirection(playerCar.matrixWorld);
         pbO[sd*3]=tA.x; pbO[sd*3+1]=tA.y; pbO[sd*3+2]=tA.z;
         pbD[sd*3]=tB.x; pbD[sd*3+1]=tB.y; pbD[sd*3+2]=tB.z;
