@@ -57,6 +57,8 @@ The VR build trades some effects for frame rate. It has no bloom or mirror refle
 - **R:** rain on/off
 - **N:** new city
 
+**Game controller (desktop build):** Xbox, PlayStation and most Bluetooth controllers work, on a PC or paired with a phone. Press any button once so the browser shows it to the game. Left stick flies, right stick steers, right trigger fires, left trigger boosts, RB/LB climb and dive, Y switches view, Start opens the menu. In menus, use the d-pad or left stick, A to select and B to go back. It rumbles on hits, kills, crashes and while firing.
+
 ## Getting old versions back
 
 Every change is saved as a commit, so nothing is lost when something breaks.

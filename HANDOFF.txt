@@ -458,6 +458,19 @@ third (desktop only: new player car, banked turning, online Dogfight).
  1/2/3/4 camera (Street/Drone/Sky/Fly)   W A S D fly   E/Q up/down
  Shift boost   drag or arrows steer   Space fire (pause outside Fly)
  P pause   C chase/cockpit   R rain   N new city   M music   Esc menu
+ Game controller (desktop, third session): browser Gamepad API, polled
+ once a frame by gpUpdate() (skipped while in VR). Prefers a pad with the
+ "standard" mapping. Flying: left stick move (radial deadzone 0.15),
+ right stick yaw/pitch (deadzone 0.12, squared curve), RT > 0.3 fire,
+ LT > 0.4 or left-stick click boost, RB/LB or d-pad up/down climb/dive,
+ Y view, Start menu. Analog values are added to the keyboard's in
+ flyStep and clamped to +-1. Menus (gpMenu): d-pad/stick moves a .gp
+ highlight to the nearest button in that direction on screen, A clicks,
+ B clicks Back/Main menu/Cancel. Rumble through vibrationActuator
+ ('dual-rumble'): cbBuzz (combat), dogfight hits taken/landed and deaths,
+ crashes, nearby traffic explosions, light buzz while firing. Hints in
+ the key bar switch to controller buttons and the phone touch pads hide
+ once a controller is seen (gpOn). Tested with a simulated pad (18 checks).
  Panel: seed, camera, fly view, sound, time of day, weather, lighting
  toggles (bloom, beams, reflections), traffic, flight speed, music volume,
  fog, glow size.
