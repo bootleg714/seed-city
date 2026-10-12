@@ -644,5 +644,17 @@ third (desktop only: new player car, banked turning, online Dogfight).
  - A controller shortcut for rain in VR (every button is taken; today it
    is only in the menu)
  - Bring the private Claude artifact copy up to date, or retire it
+ - NEXT (planned with the owner, 2026-10-12):
+   1. Port the third session's desktop work to VR: new car, banked
+      turning, Dogfight (owner was editing index.html; pull first).
+   2. New game: Tron-style 3D light cycles, multiplayer, in a /tron/
+      folder of this repo (served at bootleg714.github.io/seed-city/tron/).
+      Reuse the Dogfight networking (PeerJS star, room codes, relay).
+      Owner loved the arcade original; wants their own 3D style.
+   3. Later idea: small multiplayer FPS in a seeded mini city arena,
+      a few weapons (hitscan rifle, shotgun, rockets), deathmatch.
+ - Mobile performance: the FPS readout can't show below 20 (dt is capped
+   at 0.05 and fpsAcc sums capped dt); slow devices also run in slow
+   motion below 20 fps. Consider auto quality for phones.
 
 ================================================================================
