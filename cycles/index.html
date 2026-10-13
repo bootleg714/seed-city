@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Neon Cycles</title>
+<meta name="description" content="A neon light-cycle arena in your browser. Leave a wall of light, outlast everyone. Solo against bots or online with friends.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=JetBrains+Mono:wght@500;700&family=Figtree:wght@400;600&display=swap">
+<style>
+/* Neon Cycles: dark arena, one accent per rider, arcade type */
+:root{
+  --bg:#02030a; --panel:rgba(6,10,20,.82); --line:rgba(120,220,255,.22); --fg:#eaf6ff; --muted:#8aa0b4;
+  --cyan:#33d9ff; --amber:#ffb45e; --magenta:#ff4fbf;
+  --f-display:"Michroma",system-ui,sans-serif; --f-data:"JetBrains Mono",ui-monospace,monospace; --f-body:"Figtree",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--f-body);overflow:hidden;-webkit-tap-highlight-color:transparent}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#menu{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:radial-gradient(ellipse at center,rgba(2,3,10,.35),rgba(2,3,10,.8))}
+.card{width:min(460px,100%);max-height:calc(100% - 8px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;gap:12px}
+.kicker{font:700 11px/1 var(--f-data);letter-spacing:.22em;color:var(--cyan);margin:0}
+.title{font:400 34px/1.05 var(--f-display);letter-spacing:.04em;margin:0;text-shadow:0 0 18px rgba(51,217,255,.55)}
+.sub{font:14px/1.45 var(--f-body);color:var(--muted);margin:0}
+.big{font:700 52px/1 var(--f-data);letter-spacing:.18em;text-align:center;color:var(--fg);text-shadow:0 0 16px rgba(51,217,255,.6)}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;padding:13px 16px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);display:grid;gap:3px}
+.btn b{font:600 16px/1.2 var(--f-body)}
+.btn span{font:12px/1.35 var(--f-body);color:var(--muted)}
+.btn:hover,.btn.gp{border-color:var(--cyan);background:rgba(51,217,255,.12)}
+.btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.btn.small{padding:10px 14px}
+.btn.off{opacity:.4;pointer-events:none}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.code{box-sizing:border-box;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--fg);font:700 22px/1 var(--f-data);letter-spacing:.35em;text-align:center;text-transform:uppercase}
+.code:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.code::placeholder{color:var(--muted);letter-spacing:.2em;font-size:13px}
+.roster{display:grid;gap:6px}
+.pl{display:flex;align-items:center;gap:10px;font:600 14px/1 var(--f-data);letter-spacing:.08em}
+.chip{width:12px;height:12px;border-radius:3px;box-shadow:0 0 10px currentColor;background:currentColor}
+.tag{font:500 10px/1 var(--f-data);color:var(--muted);letter-spacing:.14em}
+a.back{color:var(--muted);font:13px/1 var(--f-body);text-align:center;text-decoration:none}
+a.back:hover{color:var(--fg)}
+#hud{position:fixed;inset:0;pointer-events:none}
+#round{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:50%;transform:translateX(-50%);font:700 12px/1 var(--f-data);letter-spacing:.2em;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;white-space:nowrap}
+#board{position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:16px;display:grid;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+#board .pl{font-size:13px}
+#board .pl.dead{opacity:.35}
+#board .wins{margin-left:auto;padding-left:14px;font-variant-numeric:tabular-nums}
+#msg{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;font:400 44px/1.1 var(--f-display);letter-spacing:.06em;text-shadow:0 0 24px rgba(51,217,255,.7);white-space:nowrap}
+#msg small{display:block;font:600 14px/1.5 var(--f-data);letter-spacing:.2em;color:var(--muted);text-shadow:none;margin-top:8px}
+#hint{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);left:50%;transform:translateX(-50%);font:12px/1.4 var(--f-body);color:var(--muted);white-space:nowrap;pointer-events:none}
+#hint kbd{font:600 11px/1 var(--f-data);border:1px solid var(--line);border-radius:4px;padding:2px 5px;color:var(--fg)}
+#touch{position:fixed;inset:auto 0 0 0;display:flex;justify-content:space-between;padding:0 14px calc(env(safe-area-inset-bottom,0px) + 14px);pointer-events:none}
+#touch button{all:unset;pointer-events:auto;width:30vw;max-width:150px;height:96px;border-radius:18px;border:1px solid var(--line);background:rgba(6,10,20,.5);display:grid;place-items:center;font:700 30px/1 var(--f-data);color:var(--fg);touch-action:none}
+#touch button.on{background:rgba(51,217,255,.22);border-color:var(--cyan)}
+@media (max-width:640px){ .title{font-size:26px} #msg{font-size:30px} #board{left:10px;padding:8px 10px} #hint{display:none} }
+@media (prefers-reduced-motion: reduce){ .title,#msg{text-shadow:none} }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Neon Cycles arena"></canvas>
+<div id="hud" hidden>
+  <div id="round"></div>
+  <div id="board"></div>
+  <div id="msg"></div>
+</div>
+<div id="hint"></div>
+<div id="touch" hidden><button data-t="-1" aria-label="Turn left">◀</button><button data-t="1" aria-label="Turn right">▶</button></div>
+<div id="menu"><div class="card" id="card" role="dialog" aria-label="Neon Cycles menu"></div></div>
+<p id="nogl" hidden style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center">WebGL is not available in this browser, so the arena can't be drawn.</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+/* =====================================================================
+   NEON CYCLES
+   Each rider leaves a wall of light. Turn 90 degrees left or right; touch any
+   wall and you're out. Last rider alive takes the round; first to 5 rounds
+   wins. Bikes speed up as a round goes on.
+
+   One "authority" runs the match: the solo player, or the host online. It
+   owns the roster, the rounds, the scores and the bots. Every rider owns its
+   own bike: it moves it, decides its own crash, and announces turns and
+   crashes. All state changes go through apply(msg), on every peer, so solo,
+   host and joiners share one code path.
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+let renderer;
+try{ renderer = new THREE.WebGLRenderer({canvas: $('#c'), antialias: true, powerPreference: 'high-performance'}); }
+catch(e){ $('#nogl').hidden = false; $('#menu').hidden = true; return; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+const HALF = 110;                 // arena half size (220 x 220)
+const WALL_H = 1.7, TRAIL_T = 0.16, HIT_R = 0.42;
+const BASE_SPEED = 24, RAMP = 0.025, RAMP_MAX = 0.8, RAMP_T = RAMP_MAX/RAMP;   // +2.5%/s up to +80%
+const TURN_GAP = 0.08, WIN_ROUNDS = 5, MAX_RIDERS = 6;
+const DIRS = [[0,-1],[1,0],[0,1],[-1,0]];           // north (-z), east, south, west; +1 is a right turn
+const COLORS = [['Cyan',0x33d9ff],['Amber',0xffb45e],['Magenta',0xff4fbf],['Lime',0x8dff4a],['Violet',0xa98bff],['Red',0xff4b3e]];
+const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches;
+// distance travelled since the round began: speed ramps linearly, then holds
+const S = t => t <= RAMP_T ? BASE_SPEED*(t + 0.5*RAMP*t*t) : BASE_SPEED*(RAMP_T + 0.5*RAMP*RAMP_T*RAMP_T + (1 + RAMP_MAX)*(t - RAMP_T));
+const speedAt = t => BASE_SPEED*(1 + Math.min(RAMP_MAX, RAMP*t));
+
+/* ---------- scene ---------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x02030a);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 3000);
+const FOG = new THREE.Color(0x05061a);
+// sky: deep blue overhead, a magenta-cyan glow along the horizon
+const sky = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), new THREE.ShaderMaterial({side: THREE.BackSide, depthWrite: false,
+  vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader: `varying vec3 vD;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+    void main(){ float y = vD.y;
+      vec3 c = mix(vec3(0.02,0.025,0.07), vec3(0.0,0.0,0.012), smoothstep(0.0,0.6,y));
+      c += vec3(0.55,0.12,0.55)*exp(-abs(y)*14.0)*0.55 + vec3(0.1,0.5,0.9)*exp(-abs(y)*40.0)*0.5;
+      vec2 g = floor(vec2(atan(vD.z, vD.x)*220.0, y*220.0)); float s = step(0.996, h(g))*smoothstep(0.05,0.3,y);
+      c += vec3(0.7,0.8,1.0)*s*0.8;
+      gl_FragColor = vec4(c,1.0); }`}));
+scene.add(sky);
+// the floor: a glowing grid, lit by every bike's light pool
+const MAXL = 8;
+const floorMat = new THREE.ShaderMaterial({extensions:{derivatives:true},
+  uniforms:{uHalf:{value:HALF}, uFog:{value:FOG}, uLP:{value:Array.from({length:MAXL}, () => new THREE.Vector3(0,-999,0))}, uLC:{value:Array.from({length:MAXL}, () => new THREE.Vector3())}, uTime:{value:0}},
+  vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+  fragmentShader: `uniform float uHalf; uniform vec3 uFog; uniform vec3 uLP[${MAXL}]; uniform vec3 uLC[${MAXL}]; uniform float uTime; varying vec3 vW;
+    float grid(vec2 p, float s, float w){ vec2 q = abs(fract(p/s - 0.5) - 0.5)*s; vec2 fw = fwidth(p)*0.75; vec2 l = 1.0 - smoothstep(vec2(w), vec2(w) + fw, q); return max(l.x, l.y); }
+    void main(){
+      vec2 p = vW.xz;
+      float inside = step(abs(p.x), uHalf)*step(abs(p.y), uHalf);
+      float g1 = grid(p, 10.0, 0.05), g2 = grid(p, 2.0, 0.015);
+      vec3 col = vec3(0.006,0.008,0.02);
+      col += vec3(0.1,0.55,1.0)*(g1*0.6 + g2*0.14)*mix(0.18, 1.0, inside);
+      for (int i=0;i<${MAXL};i++){ vec2 d = uLP[i].xz - p; float r2 = dot(d,d); col += uLC[i]*(0.55/(1.0 + r2*0.06) + 0.25/(1.0 + r2*0.6))*(0.55 + 0.45*(g1 + g2)); }
+      float dist = length(vW - cameraPosition);
+      col = mix(col, uFog, smoothstep(160.0, 700.0, dist));
+      gl_FragColor = vec4(col, 1.0); }`});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600).rotateX(-Math.PI/2), floorMat);
+scene.add(floor);
+// arena walls: translucent panels with a lit top edge
+const wallMat = new THREE.ShaderMaterial({transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+  uniforms:{uTime:{value:0}},
+  vertexShader: 'varying vec2 vU; varying vec3 vW; void main(){ vU = uv; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+  fragmentShader: `uniform float uTime; varying vec2 vU; varying vec3 vW;
+    void main(){ float top = smoothstep(0.93, 1.0, vU.y), base = smoothstep(0.12, 0.0, vU.y);
+      float bars = step(0.97, fract(vW.x*0.1 + vW.z*0.1));
+      float scan = 0.5 + 0.5*sin(vU.y*40.0 - uTime*2.0);
+      vec3 c = vec3(0.1,0.55,1.0)*(0.05 + 0.03*scan + top*1.3 + base*0.35 + bars*0.08);
+      gl_FragColor = vec4(c, 1.0); }`});
+for (let k=0;k<4;k++){
+  const w = new THREE.Mesh(new THREE.PlaneGeometry(HALF*2, 9), wallMat);
+  const a = k*Math.PI/2; w.position.set(Math.sin(a)*HALF, 4.5, Math.cos(a)*HALF); w.rotation.y = a;
+  scene.add(w);
+}
+
+/* ---------- riders: an original hover-bike, drawn as dark armour with neon outlines ---------- */
+const darkMat = new THREE.MeshBasicMaterial({color:0x070a14});
+function makeBike(color){
+  const g = new THREE.Group(), c = new THREE.Color(color);
+  const edge = new THREE.LineBasicMaterial({color: c});
+  const glow = new THREE.MeshBasicMaterial({color: c});
+  const add = (geo, mat, x, y, z, outline) => { const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z); g.add(m);
+    if (outline){ const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), edge); e.position.copy(m.position); e.rotation.copy(m.rotation); g.add(e); } return m; };
+  // body: a long wedge, low at the nose (faces -z)
+  const body = new THREE.BoxGeometry(0.9, 0.55, 2.8).toNonIndexed();
+  { const p = body.attributes.position; for (let i=0;i<p.count;i++){ const z = p.getZ(i), y = p.getY(i); if (z < 0 && y > 0) p.setY(i, y - 0.32); if (z < 0) p.setX(i, p.getX(i)*0.62); } body.computeVertexNormals(); }
+  add(body, darkMat, 0, 0.75, 0, true);
+  // canopy and tail fins
+  const can = new THREE.BoxGeometry(0.55, 0.32, 0.9).toNonIndexed();
+  { const p = can.attributes.position; for (let i=0;i<p.count;i++) if (p.getY(i) > 0) p.setX(i, p.getX(i)*0.55); can.computeVertexNormals(); }
+  add(can, darkMat, 0, 1.15, 0.25, true);
+  for (const s of [-1,1]){
+    const fin = add(new THREE.BoxGeometry(0.06, 0.5, 0.8), darkMat, s*0.5, 1.05, 1.0, true); fin.rotation.z = s*0.35;
+    add(new THREE.BoxGeometry(0.05, 0.06, 2.4), glow, s*0.47, 0.62, 0.05);            // side light lines
+  }
+  // the engine ring at the back, and a glowing hover pad underneath
+  const ring = add(new THREE.TorusGeometry(0.36, 0.06, 6, 20), glow, 0, 0.78, 1.42);
+  add(new THREE.CircleGeometry(0.22, 16), new THREE.MeshBasicMaterial({color:0xffffff}), 0, 0.78, 1.43);
+  const pad = add(new THREE.PlaneGeometry(0.9, 2.4).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false}), 0, 0.12, 0);
+  g.userData = {ring, pad};
+  return g;
+}
+// light walls: one box per straight piece, bright along the top
+function trailMat(color){
+  return new THREE.ShaderMaterial({transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+    uniforms:{uC:{value:new THREE.Color(color)}, uA:{value:1}, uFog:{value:FOG}},
+    vertexShader: 'varying float vY; varying vec3 vW; void main(){ vY = position.y + 0.5; vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader: `uniform vec3 uC; uniform float uA; varying float vY; varying vec3 vW;
+      void main(){ float top = smoothstep(0.86, 1.0, vY), bot = smoothstep(0.1, 0.0, vY);
+        vec3 c = uC*(0.16 + 0.22*vY + top*1.25 + bot*0.4);
+        float fade = 1.0 - smoothstep(220.0, 700.0, length(vW - cameraPosition));
+        gl_FragColor = vec4(c*uA*fade, 1.0); }`});
+}
+const unitBox = new THREE.BoxGeometry(1, 1, 1);
+
+/* ---------- sparks ---------- */
+const PMAX = 1400;
+const pPos = new Float32Array(PMAX*3), pVel = new Float32Array(PMAX*3), pCol = new Float32Array(PMAX*3), pLife = new Float32Array(PMAX);
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+const pTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 32; const x = cv.getContext('2d'); const gr = x.createRadialGradient(16,16,0,16,16,16); gr.addColorStop(0,'#fff'); gr.addColorStop(0.3,'rgba(255,255,255,.6)'); gr.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0,0,32,32); return new THREE.CanvasTexture(cv); })();
+const sparks = new THREE.Points(pGeo, new THREE.PointsMaterial({size:0.9, map:pTex, vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+sparks.frustumCulled = false; scene.add(sparks);
+let pHead = 0;
+function burst(x, y, z, color, n, spd){
+  const c = new THREE.Color(color);
+  for (let k=0;k<n;k++){
+    const i = pHead; pHead = (pHead + 1) % PMAX;
+    const u = Math.random()*2 - 1, a = Math.random()*Math.PI*2, r = Math.sqrt(1 - u*u), s = spd*(0.3 + 0.7*Math.random());
+    pPos[i*3] = x; pPos[i*3+1] = y; pPos[i*3+2] = z;
+    pVel[i*3] = r*Math.cos(a)*s; pVel[i*3+1] = Math.abs(u)*s*0.8 + 2; pVel[i*3+2] = r*Math.sin(a)*s;
+    const w = Math.random() < 0.25 ? 1 : 0; pCol[i*3] = c.r + w; pCol[i*3+1] = c.g + w; pCol[i*3+2] = c.b + w;
+    pLife[i] = 0.6 + Math.random()*0.9;
+  }
+}
+function updateSparks(dt){
+  for (let i=0;i<PMAX;i++){
+    if (pLife[i] <= 0) continue;
+    pLife[i] -= dt; pVel[i*3+1] -= 14*dt;
+    pPos[i*3] += pVel[i*3]*dt; pPos[i*3+1] = Math.max(0.05, pPos[i*3+1] + pVel[i*3+1]*dt); pPos[i*3+2] += pVel[i*3+2]*dt;
+    if (pLife[i] <= 0){ pPos[i*3+1] = -999; }
+    const f = Math.max(0, Math.min(1, pLife[i]*1.5)); pCol[i*3] *= 0.985 + 0.015*f; pCol[i*3+1] *= 0.985 + 0.015*f; pCol[i*3+2] *= 0.985 + 0.015*f;
+  }
+  pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+}
+for (let i=0;i<PMAX;i++) pPos[i*3+1] = -999;
+
+/* ---------- sound: synthesized, no files ---------- */
+let actx = null, out = null, engine = null, soundOn = true;
+function audio(){
+  if (!actx){ try{ actx = new (window.AudioContext || window.webkitAudioContext)(); }catch(_){ return null; }
+    out = actx.createDynamicsCompressor(); out.threshold.value = -12; out.ratio.value = 8; out.connect(actx.destination); }
+  if (actx.state === 'suspended') actx.resume().catch(()=>{});
+  return actx.state === 'running' ? actx : null;
+}
+function tone(f, dur, type, vol, slide, delay){
+  const a = audio(); if (!a || !soundOn) return;
+  const t = a.currentTime + (delay || 0), o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+  g.gain.setValueAtTime(vol || 0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(dur, f0, f1, vol){
+  const a = audio(); if (!a || !soundOn) return;
+  const t = a.currentTime, n = a.sampleRate*dur, b = a.createBuffer(1, n, a.sampleRate), d = b.getChannelData(0);
+  for (let i=0;i<n;i++) d[i] = Math.random()*2 - 1;
+  const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = b; f.type = 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(out); s.start(t);
+}
+const sfxTurn = () => tone(520, 0.05, 'square', 0.025, 780);
+const sfxBeep = hi => tone(hi ? 1046 : 523, hi ? 0.4 : 0.15, 'square', 0.05);
+const sfxCrash = near => { noise(0.9, 2400, 60, near ? 0.5 : 0.18); tone(near ? 220 : 160, 0.6, 'sawtooth', near ? 0.08 : 0.03, 40); };
+const sfxWin = () => { tone(523,0.18,'triangle',0.08,0,0); tone(659,0.18,'triangle',0.08,0,0.15); tone(784,0.18,'triangle',0.08,0,0.3); tone(1046,0.5,'triangle',0.08,0,0.45); };
+let engT = 0;
+function engineSet(on, speed, force){
+  if (!force && !on && !engine) return;
+  const a = audio(); if (!a) return;
+  if (!engine){
+    const o1 = a.createOscillator(), o2 = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+    o1.type = 'sawtooth'; o2.type = 'square'; o1.frequency.value = 55; o2.frequency.value = 110.6;
+    f.type = 'lowpass'; f.frequency.value = 600; f.Q.value = 6; g.gain.value = 0;
+    o1.connect(f); o2.connect(f); f.connect(g); g.connect(out); o1.start(); o2.start();
+    engine = {o1, o2, f, g};
+  }
+  const t = a.currentTime, k = speed/BASE_SPEED;
+  engine.g.gain.setTargetAtTime(on && soundOn ? 0.05 : 0, t, 0.12);
+  engine.o1.frequency.setTargetAtTime(55*k, t, 0.2); engine.o2.frequency.setTargetAtTime(110.6*k, t, 0.2);
+  engine.f.frequency.setTargetAtTime(500 + 500*k, t, 0.2);
+}
+
+/* ---------- match state ---------- */
+const riders = new Map();     // id -> rider
+let roster = [];              // [{id, c, bot}] in colour order; owned by the authority
+let myId = 'p0', mode = 'menu';            // 'menu' | 'solo' | 'online'
+let state = 'idle';           // 'idle' | 'lobby' | 'countdown' | 'run' | 'over'
+let round = 0, scores = {}, cd = 0, tRun = 0, overT = 0, endT = -1, lastBeep = 0;
+let soloBots = 3, lastWinner = null, banner = '', bannerT = 0;
+const isAuth = () => mode === 'solo' || (mode === 'online' && net && net.role === 'host');
+const owns = r => r.id === myId || (r.bot && isAuth());
+const nameOf = id => { const e = roster.find(q => q.id === id); const c = e ? COLORS[e.c % COLORS.length][0] : '?'; return id === myId ? 'You' : (e && e.bot ? c + ' bot' : c); };
+const colorOf = id => { const e = roster.find(q => q.id === id); return COLORS[(e ? e.c : 0) % COLORS.length][1]; };
+
+function makeRider(id){
+  const color = colorOf(id), bike = makeBike(color);
+  scene.add(bike);
+  const entry = roster.find(q => q.id === id);
+  return {id, color, bike, bot: !!(entry && entry.bot), mat: trailMat(color), segs: [], segMesh: [], cur: null,
+          x:0, z:0, dir:0, tsx:0, tsz:0, alive:false, inRound:false, lastTurn:-9, pend:0,
+          bx:0, bz:0, bt:0, yaw:0, lean:0, derez:[], ai:{t:0, next:0}};
+}
+function clearRider(r){
+  for (const m of r.segMesh) scene.remove(m);
+  if (r.cur) scene.remove(r.cur);
+  for (const d of r.derez) scene.remove(d.m);
+  r.segs = []; r.segMesh = []; r.cur = null; r.derez = [];
+}
+function dropRider(id){ const r = riders.get(id); if (!r) return; clearRider(r); scene.remove(r.bike); riders.delete(id); }
+function syncRiders(){
+  for (const id of [...riders.keys()]) if (!roster.find(q => q.id === id)) dropRider(id);
+  for (const q of roster) if (!riders.has(q.id)) riders.set(q.id, makeRider(q.id));
+  for (const r of riders.values()) r.bike.visible = r.inRound && r.alive;
+}
+// a wall piece from (x1,z1) to (x2,z2)
+function placeSeg(m, x1, z1, x2, z2){
+  const len = Math.max(0.001, Math.abs(x2 - x1) + Math.abs(z2 - z1));
+  m.position.set((x1 + x2)/2, WALL_H/2, (z1 + z2)/2);
+  if (Math.abs(x2 - x1) > Math.abs(z2 - z1)) m.scale.set(len + TRAIL_T, WALL_H, TRAIL_T); else m.scale.set(TRAIL_T, WALL_H, len + TRAIL_T);
+}
+function newSegMesh(r){ const m = new THREE.Mesh(unitBox, r.mat); m.frustumCulled = false; scene.add(m); return m; }
+
+// where each rider starts: spread over the four sides, facing in, never on the same line as a rival
+function spawns(ids){
+  const out = [], D = HALF*0.72;
+  ids.forEach((id, i) => {
+    const side = i % 4, slot = Math.floor(i/4), off = (side < 2 ? -14 : 14) + (slot ? (slot % 2 ? 34 : -34) : 0);
+    const P = [[off, D, 0], [-D, off, 1], [off, -D, 2], [D, off, 3]][side];
+    out.push([id, P[0], P[1], P[2]]);
+  });
+  return out;
+}
+
+/* every change of match state goes through here, on every peer */
+function apply(m){
+  switch (m.t){
+    case 'roster':
+      roster = m.roster; scores = m.scores || scores; syncRiders(); drawBoard(); if (mode === 'online' && state === 'lobby') showPage('lobby');
+      return;
+    case 'round': {
+      round = m.n; scores = m.scores || scores; state = 'countdown'; cd = 3; lastBeep = 4; tRun = 0; endT = -1;
+      for (const r of riders.values()){ clearRider(r); r.inRound = false; r.alive = false; }
+      for (const [id, x, z, d] of m.spawns){
+        const r = riders.get(id); if (!r) continue;
+        Object.assign(r, {x, z, dir: d, tsx: x, tsz: z, bx: x, bz: z, bt: 0, alive: true, inRound: true, lastTurn: -9, pend: 0, yaw: -d*Math.PI/2, lean: 0});
+        r.ai = {t: 0, next: 1 + Math.random()*2};
+        r.cur = newSegMesh(r); placeSeg(r.cur, x, z, x, z);
+      }
+      syncRiders(); showPage(null); $('#hud').hidden = false; drawBoard();
+      return;
+    }
+    case 'turn': {
+      const r = riders.get(m.id); if (!r || !r.alive || m.n !== round) return;
+      r.segs.push([r.tsx, r.tsz, m.x, m.z]);
+      const piece = r.cur || newSegMesh(r); placeSeg(piece, r.tsx, r.tsz, m.x, m.z); r.segMesh.push(piece);
+      r.tsx = m.x; r.tsz = m.z; r.dir = m.d; r.cur = newSegMesh(r);
+      if (!owns(r)){ r.x = m.x; r.z = m.z; r.bx = m.x; r.bz = m.z; r.bt = m.tr; }
+      return;
+    }
+    case 'pos': {
+      const r = riders.get(m.id); if (!r || !r.alive || owns(r) || m.n !== round || m.d !== r.dir) return;
+      r.bx = m.x; r.bz = m.z; r.bt = m.tr;
+      return;
+    }
+    case 'crash': {
+      const r = riders.get(m.id); if (!r || !r.alive || m.n !== round) return;
+      r.alive = false; r.x = m.x; r.z = m.z;
+      if (r.cur){ placeSeg(r.cur, r.tsx, r.tsz, m.x, m.z); r.segMesh.push(r.cur); r.cur = null; }
+      // the rider's walls dissolve (and stop counting) as soon as they crash
+      for (const piece of r.segMesh) r.derez.push({m: piece, t: 1});
+      r.segMesh = []; r.segs = [];
+      r.bike.visible = false;
+      burst(m.x, 0.9, m.z, r.color, 220, 16);
+      const me = riders.get(myId), near = r.id === myId || (me && Math.hypot(me.x - m.x, me.z - m.z) < 60);
+      sfxCrash(near); if (r.id === myId){ shake = 1; gpRumble(1, 1, 500); flash('DEREZZED', 'WATCHING THE OTHERS'); }
+      drawBoard();
+      return;
+    }
+    case 'roundEnd': {
+      state = 'over'; overT = 3.2; scores = m.scores; lastWinner = m.winner;
+      engineSet(false, BASE_SPEED);
+      if (m.winner === myId){ sfxWin(); flash('ROUND WON', 'ROUND ' + round); }
+      else flash(m.winner ? nameOf(m.winner).toUpperCase() + ' WINS' : 'DRAW', 'ROUND ' + round);
+      drawBoard();
+      return;
+    }
+    case 'matchEnd': {
+      state = mode === 'online' ? 'lobby' : 'idle'; scores = m.scores; lastWinner = m.winner;
+      engineSet(false, BASE_SPEED);
+      for (const r of riders.values()){ clearRider(r); r.inRound = false; r.alive = false; r.bike.visible = false; }
+      if (m.winner === myId) sfxWin();
+      banner = (m.winner === myId ? 'YOU WIN THE MATCH' : nameOf(m.winner).toUpperCase() + ' WINS THE MATCH');
+      $('#msg').innerHTML = ''; $('#hud').hidden = true;
+      showPage(mode === 'online' ? 'lobby' : 'results');
+      return;
+    }
+  }
+}
+// the authority changes state through emit(), which applies locally and tells everyone else
+function emit(m){ apply(m); if (mode === 'online') netSend(m); }
+
+/* ---------- authority: rounds, scores, bots ---------- */
+function authStartMatch(){
+  scores = {}; for (const q of roster) scores[q.id] = 0;
+  round = 0; authNextRound();
+}
+function authNextRound(){
+  const ids = roster.map(q => q.id);
+  if (ids.length < 2) return;
+  emit({t:'round', n: round + 1, spawns: spawns(shuffle(ids)), scores});
+}
+function shuffle(a){ a = a.slice(); for (let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function authTick(dt){
+  if (state === 'run'){
+    const inRound = [...riders.values()].filter(r => r.inRound), alive = inRound.filter(r => r.alive);
+    if (alive.length <= 1 && endT < 0) endT = 0.7;                  // a short beat so the last crash plays out
+    if (endT >= 0){ endT -= dt; if (endT < 0){
+      const winner = alive.length === 1 ? alive[0].id : null;
+      const sc = Object.assign({}, scores); if (winner) sc[winner] = (sc[winner] || 0) + 1;
+      emit({t:'roundEnd', n: round, winner, scores: sc});
+    } }
+  } else if (state === 'over'){
+    overT -= dt;
+    if (overT <= 0){
+      const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+      if (best && best[1] >= WIN_ROUNDS) emit({t:'matchEnd', winner: best[0], scores});
+      else authNextRound();
+    }
+  }
+}
+
+/* ---------- collisions: point vs. every wall piece, as axis-aligned boxes ---------- */
+function hitAt(px, pz, self){
+  if (Math.abs(px) > HALF - HIT_R || Math.abs(pz) > HALF - HIT_R) return true;
+  for (const q of riders.values()){
+    if (!q.inRound) continue;
+    const n = q.segs.length;
+    for (let i=0;i<n;i++){
+      if (q === self && i === n - 1 && Math.abs(self.x - self.tsx) + Math.abs(self.z - self.tsz) < 1.2) continue;   // the corner we just turned
+      const s = q.segs[i];
+      if (px > Math.min(s[0], s[2]) - HIT_R && px < Math.max(s[0], s[2]) + HIT_R && pz > Math.min(s[1], s[3]) - HIT_R && pz < Math.max(s[1], s[3]) + HIT_R) return true;
+    }
+    if (q !== self && q.alive){
+      if (px > Math.min(q.tsx, q.x) - HIT_R && px < Math.max(q.tsx, q.x) + HIT_R && pz > Math.min(q.tsz, q.z) - HIT_R && pz < Math.max(q.tsz, q.z) + HIT_R) return true;
+    }
+  }
+  return false;
+}
+// how far a rider could go in a direction before hitting something (bots use this to look ahead)
+function freeDist(r, dir, maxD){
+  const [dx, dz] = DIRS[dir];
+  for (let d = 1; d <= maxD; d += 0.8) if (hitAt(r.x + dx*d, r.z + dz*d, r)) return d;
+  return maxD;
+}
+
+/* ---------- moving bikes ---------- */
+function ownTurn(r, delta){
+  if (!r.alive || state !== 'run') return false;
+  if (tRun - r.lastTurn < TURN_GAP){ r.pend = delta; return false; }
+  r.lastTurn = tRun; r.pend = 0;
+  const d = (r.dir + delta + 4) % 4;
+  emit({t:'turn', id: r.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3), d, tr: +tRun.toFixed(3)});
+  if (r.id === myId){ sfxTurn(); gpRumble(0, 0.2, 40); }
+  return true;
+}
+function moveOwned(r, t0, t1){
+  if (r.pend && t1 - r.lastTurn >= TURN_GAP) ownTurn(r, r.pend);
+  const dist = S(t1) - S(t0), steps = Math.max(1, Math.ceil(dist/0.3)), [dx, dz] = DIRS[r.dir], st = dist/steps;
+  for (let k=0;k<steps;k++){
+    const nx = r.x + dx*st, nz = r.z + dz*st;
+    if (hitAt(nx, nz, r)){ emit({t:'crash', id: r.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3)}); return; }
+    r.x = nx; r.z = nz;
+  }
+}
+function moveRemote(r){
+  // follow the last known point along the current heading, coasting at most a second
+  const span = Math.max(0, Math.min(tRun, r.bt + 1.0) - r.bt), [dx, dz] = DIRS[r.dir];
+  const d = S(r.bt + span) - S(r.bt);
+  r.x = r.bx + dx*d; r.z = r.bz + dz*d;
+}
+function botThink(r, dt){
+  r.ai.t += dt;
+  const look = 5 + speedAt(tRun)*0.32, ahead = freeDist(r, r.dir, look + 2);
+  let turn = 0;
+  if (ahead < look){
+    const L = freeDist(r, (r.dir + 3) % 4, 60), R = freeDist(r, (r.dir + 1) % 4, 60);
+    turn = L > R ? -1 : R > L ? 1 : (Math.random() < 0.5 ? -1 : 1);
+  } else if (r.ai.t > r.ai.next){
+    // now and then, cut across: turn toward the side with more room
+    r.ai.t = 0; r.ai.next = 0.8 + Math.random()*2.6;
+    const L = freeDist(r, (r.dir + 3) % 4, 40), R = freeDist(r, (r.dir + 1) % 4, 40);
+    if (Math.max(L, R) > 18) turn = L > R ? -1 : 1;
+  }
+  if (turn) ownTurn(r, turn);
+}
+
+/* ---------- camera and view ---------- */
+let shake = 0, camYaw = 0, watchId = null;
+const camPos = new THREE.Vector3(0, 120, 160), camLook = new THREE.Vector3();
+function updateCamera(dt){
+  const me = riders.get(myId);
+  let target = me && me.inRound && me.alive ? me : null;
+  if (!target && (state === 'run' || state === 'over' || state === 'countdown')){
+    // spectate: follow whoever is still riding
+    let w = watchId && riders.get(watchId);
+    if (!w || !w.alive) { w = [...riders.values()].find(r => r.inRound && r.alive); watchId = w ? w.id : null; }
+    target = w;
+  }
+  if (target){
+    const ty = target.yaw;
+    camYaw += (((ty - camYaw + Math.PI*3) % (Math.PI*2)) - Math.PI)*(1 - Math.exp(-dt*7));
+    const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+    const want = new THREE.Vector3(target.x - fx*10.5, 4.6, target.z - fz*10.5);
+    camPos.lerp(want, 1 - Math.exp(-dt*9));
+    camLook.set(target.x + fx*9, 1.2, target.z + fz*9);
+  } else {
+    // menus and lobby: a slow orbit over the arena
+    const a = performance.now()*0.00006;
+    camPos.lerp(new THREE.Vector3(Math.sin(a)*170, 95, Math.cos(a)*170), 1 - Math.exp(-dt*1.5));
+    camLook.set(0, 0, 0);
+  }
+  camera.position.copy(camPos);
+  if (shake > 0.01){ camera.position.x += (Math.random() - 0.5)*shake; camera.position.y += (Math.random() - 0.5)*shake*0.6; shake *= Math.exp(-dt*5); }
+  camera.lookAt(camLook);
+}
+function updateBikes(dt){
+  let li = 0;
+  for (const r of riders.values()){
+    if (!r.inRound) continue;
+    // the head piece of the wall follows the bike
+    if (r.cur && r.alive) placeSeg(r.cur, r.tsx, r.tsz, r.x, r.z);
+    const ty = -r.dir*Math.PI/2;
+    const dy = ((ty - r.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
+    r.yaw += dy*(1 - Math.exp(-dt*16));
+    r.lean += (Math.max(-0.5, Math.min(0.5, -dy*1.2)) - r.lean)*(1 - Math.exp(-dt*10));
+    r.bike.position.set(r.x, 0.06*Math.sin(performance.now()*0.008 + r.x), r.z);
+    r.bike.rotation.set(0, r.yaw, 0); r.bike.rotateZ(r.lean);
+    r.bike.userData.ring.rotation.z += dt*8;
+    if (r.alive && li < MAXL){ const c = new THREE.Color(r.color); floorMat.uniforms.uLP.value[li].set(r.x, 0, r.z); floorMat.uniforms.uLC.value[li].set(c.r, c.g, c.b); li++; }
+    // dissolving walls of crashed riders
+    for (let i=r.derez.length-1;i>=0;i--){
+      const d = r.derez[i]; d.t -= dt*0.9;
+      d.m.scale.y = WALL_H*Math.max(0.02, d.t); d.m.position.y = WALL_H*Math.max(0.02, d.t)/2;
+      if (d.t <= 0){ scene.remove(d.m); r.derez.splice(i, 1); }
+      else if (Math.random() < dt*6) burst(d.m.position.x + (Math.random() - 0.5)*d.m.scale.x, d.m.position.y, d.m.position.z + (Math.random() - 0.5)*d.m.scale.z, r.color, 2, 3);
+    }
+  }
+  for (; li < MAXL; li++) floorMat.uniforms.uLP.value[li].set(0, -999, 0);
+}
+
+/* ---------- HUD ---------- */
+let msgT = 0;
+function flash(head, sub){ $('#msg').innerHTML = head + (sub ? '<small>' + sub + '</small>' : ''); msgT = 2.2; }
+function drawBoard(){
+  const rows = roster.map(q => {
+    const r = riders.get(q.id), dead = state !== 'idle' && state !== 'lobby' && r && r.inRound && !r.alive;
+    return '<div class="pl' + (dead ? ' dead' : '') + '"><span class="chip" style="color:#' + COLORS[q.c % COLORS.length][1].toString(16).padStart(6,'0') + '"></span>' + nameOf(q.id).toUpperCase() + '<span class="wins">' + (scores[q.id] || 0) + '</span></div>';
+  });
+  $('#board').innerHTML = rows.join('');
+  $('#round').textContent = 'ROUND ' + round + '  ·  FIRST TO ' + WIN_ROUNDS + (mode === 'online' && net ? '  ·  ROOM ' + net.code : '');
+}
+function updateHint(){
+  const pad = gpOn;
+  $('#hint').innerHTML = state === 'countdown' || state === 'run' || state === 'over'
+    ? (pad ? '<kbd>◀</kbd><kbd>▶</kbd> or <kbd>LB</kbd><kbd>RB</kbd> turn · <kbd>Start</kbd> leave' : '<kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> turn · <kbd>Esc</kbd> leave')
+    : (pad ? '<kbd>D-pad</kbd> choose · <kbd>A</kbd> select · <kbd>B</kbd> back' : '');
+  $('#touch').hidden = !(IS_TOUCH && !pad && (state === 'countdown' || state === 'run'));
+}
+
+/* ---------- menus ---------- */
+let page = 'main', lastCode = '', netStatus = '', netErr = '', copied = false;
+function showPage(p){
+  if (p === null){ $('#menu').hidden = true; updateHint(); return; }
+  page = p; $('#menu').hidden = false;
+  const card = $('#card'); let h = '';
+  const btn = (id, label, sub, cls) => '<button class="btn' + (cls ? ' ' + cls : '') + '" data-id="' + id + '"><b>' + label + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</button>';
+  const rosterHtml = () => '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:#' + COLORS[q.c % COLORS.length][1].toString(16).padStart(6,'0') + '"></span>' + nameOf(q.id).toUpperCase() + (q.bot ? ' <span class="tag">BOT</span>' : '') + (q.id === 'p0' && mode === 'online' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>';
+  if (p === 'main'){
+    h = '<p class="kicker">SEED CITY ARCADE</p><h1 class="title">NEON CYCLES</h1>'
+      + '<p class="sub">Your bike leaves a wall of light. Turn left or right, never into a wall. Last rider riding takes the round; first to ' + WIN_ROUNDS + ' wins.</p>'
+      + btn('solo', 'Ride solo', 'Against ' + soloBots + (soloBots === 1 ? ' bot' : ' bots'))
+      + '<div class="row">' + btn('botsless', '− Bot', '', 'small') + btn('botsmore', '+ Bot', '', 'small') + '</div>'
+      + btn('host', 'Host online', 'Get a room code for friends')
+      + '<input id="code" class="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code" value="' + lastCode + '">'
+      + btn('join', 'Join online', 'Type the code above, then join')
+      + btn('sound', 'Sound: ' + (soundOn ? 'on' : 'off'), '', 'small')
+      + '<a class="back" href="../desktop.html">← Back to Seed City</a>';
+  } else if (p === 'results'){
+    h = '<p class="kicker">MATCH OVER</p><h1 class="title">' + banner + '</h1>' + rosterHtml()
+      + '<p class="sub">' + roster.map(q => nameOf(q.id) + ' ' + (scores[q.id] || 0)).join(' · ') + '</p>'
+      + btn('again', 'Ride again', 'Same bots, new match') + btn('menu', 'Main menu', '', 'small');
+  } else if (p === 'wait'){
+    h = '<p class="kicker">NEON CYCLES</p><h1 class="title">ONLINE</h1><p class="sub">' + netStatus + '</p>' + btn('cancel', 'Cancel', '', 'small');
+  } else if (p === 'err'){
+    h = '<p class="kicker">NEON CYCLES</p><h1 class="title">ONLINE</h1><p class="sub">' + netErr + '</p>' + btn('menu', 'Back', '', 'small');
+  } else if (p === 'lobby'){
+    const host = net && net.role === 'host', humans = roster.filter(q => !q.bot).length;
+    h = '<p class="kicker">' + (banner ? banner : 'ROOM OPEN') + '</p><div class="big">' + (net ? net.code : '') + '</div>'
+      + '<p class="sub">' + (host ? 'Share the code: friends pick Join online and type it in. Add bots to fill the grid, then start when everyone is in.' : 'You’re in. The host starts the match.') + '</p>'
+      + rosterHtml()
+      + (host ? '<div class="row">' + btn('rbotless', '− Bot', '', 'small' + (roster.some(q => q.bot) ? '' : ' off')) + btn('rbotmore', '+ Bot', '', 'small' + (roster.length < MAX_RIDERS ? '' : ' off')) + '</div>'
+              + btn('start', 'Start match', roster.length < 2 ? 'Needs at least 2 riders (add a bot to practise)' : roster.length + ' riders · first to ' + WIN_ROUNDS, roster.length < 2 ? 'off' : '')
+              + btn('copy', copied ? 'Link copied' : 'Copy invite link', copied ? 'Paste it to a friend' : 'Opens Neon Cycles straight into this room', 'small')
+            : '')
+      + btn('leave', 'Leave room', '', 'small');
+  }
+  card.innerHTML = h;
+  card.querySelectorAll('.btn').forEach(b => b.addEventListener('click', () => { audio(); menuAction(b.dataset.id); }));
+  const code = $('#code');
+  if (code){ code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); lastCode = code.value; });
+             code.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') menuAction('join'); }); }
+  updateHint();
+}
+function menuAction(id){
+  if (id === 'solo' || id === 'again') startSolo();
+  else if (id === 'botsless'){ soloBots = Math.max(1, soloBots - 1); showPage('main'); }
+  else if (id === 'botsmore'){ soloBots = Math.min(MAX_RIDERS - 1, soloBots + 1); showPage('main'); }
+  else if (id === 'sound'){ soundOn = !soundOn; if (!soundOn) engineSet(false, BASE_SPEED); showPage('main'); }
+  else if (id === 'host') netHost(0);
+  else if (id === 'join'){ const c = $('#code'); netJoin(c ? c.value : lastCode); }
+  else if (id === 'cancel' || id === 'leave' || id === 'menu') toMenu();
+  else if (id === 'rbotmore' && roster.length < MAX_RIDERS){ addBot(); emit({t:'roster', roster, scores}); }
+  else if (id === 'rbotless'){ const b = [...roster].reverse().find(q => q.bot); if (b){ roster = roster.filter(q => q !== b); emit({t:'roster', roster, scores}); } }
+  else if (id === 'start' && roster.length >= 2){ banner = ''; authStartMatch(); }
+  else if (id === 'copy'){ const link = location.href.split('#')[0] + '#room=' + net.code;
+    const done = () => { copied = true; showPage('lobby'); };
+    try{ navigator.clipboard.writeText(link).then(done, () => prompt('Copy this invite link:', link)); }catch(_){ prompt('Copy this invite link:', link); } }
+}
+function freeColor(){ for (let c=0;c<COLORS.length;c++) if (!roster.some(q => q.c === c)) return c; return roster.length % COLORS.length; }
+function addBot(){ let n = 1; while (roster.some(q => q.id === 'b' + n)) n++; roster.push({id: 'b' + n, c: freeColor(), bot: true}); }
+function startSolo(){
+  netLeave(); mode = 'solo'; myId = 'p0'; banner = '';
+  roster = [{id: 'p0', c: 0, bot: false}]; for (let i=0;i<soloBots;i++) addBot();
+  syncRiders(); authStartMatch();
+}
+function toMenu(){
+  netLeave(); mode = 'menu'; state = 'idle'; banner = ''; engineSet(false, BASE_SPEED);
+  for (const id of [...riders.keys()]) dropRider(id);
+  roster = []; $('#hud').hidden = true; $('#msg').innerHTML = '';
+  showPage('main');
+}
+
+/* ---------- online: peer to peer through PeerJS, the same design as Seed City's Dogfight ----------
+   The host registers "neoncycles-<CODE>" with the free PeerJS matchmaker; joiners connect to it.
+   Everyone talks only to the host, which forwards each message to the others. */
+const NET_PREFIX = 'neoncycles-', PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', NET_TIMEOUT = 8;
+let net = null;
+function loadPeerJS(){
+  return new Promise((res, rej) => {
+    const ready = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+    if (ready()) return res(ready());
+    const s = document.createElement('script'); s.src = PEERJS;
+    s.onload = () => ready() ? res(ready()) : rej(new Error('the networking library did not start'));
+    s.onerror = () => rej(new Error('could not download the networking library (check your connection)'));
+    document.head.appendChild(s);
+  });
+}
+const peerOpts = () => window.NEONCYCLES_PEER_OPTS || {debug: 0};
+function newCode(){ const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i=0;i<4;i++) c += A[Math.floor(Math.random()*A.length)]; return c; }
+function netFail(text){ netErr = text; const keep = net; netLeave(); mode = 'menu'; state = 'idle'; for (const id of [...riders.keys()]) dropRider(id); roster = []; $('#hud').hidden = true; $('#msg').innerHTML = ''; showPage('err'); }
+function netWait(text){ netStatus = text; showPage('wait'); }
+function netLeave(){
+  if (!net) return;
+  const n = net; net = null;
+  try{ n.peer.destroy(); }catch(_){}
+}
+function netSend(m){
+  if (!net) return;
+  if (net.role === 'host'){ for (const c of net.conns.keys()) if (c.open) c.send(m); }
+  else if (net.conn && net.conn.open) net.conn.send(m);
+}
+async function netHost(attempt){
+  netLeave(); netWait('Opening a room…');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return netFail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'wait') return;
+  const code = newCode(), peer = new P(NET_PREFIX + code, peerOpts());
+  net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
+  const me = net;
+  peer.on('open', () => {
+    if (net !== me) return;
+    mode = 'online'; myId = 'p0'; state = 'lobby'; banner = ''; copied = false;
+    roster = [{id: 'p0', c: 0, bot: false}]; scores = {}; syncRiders();
+    showPage('lobby');
+  });
+  peer.on('connection', conn => {
+    conn.on('data', d => netRecv(d, conn));
+    conn.on('close', () => netDrop(conn));
+    conn.on('error', () => netDrop(conn));
+  });
+  peer.on('disconnected', () => { try{ if (!peer.destroyed) peer.reconnect(); }catch(_){} });
+  peer.on('error', err => {
+    if (net !== me) return;
+    if (err.type === 'unavailable-id' && (attempt || 0) < 4) return netHost((attempt || 0) + 1);
+    if (state !== 'lobby' && mode !== 'online') netFail('Couldn’t open a room (' + (err.type || 'error') + '). Try again in a moment.');
+  });
+}
+async function netJoin(code){
+  code = String(code || '').trim().toUpperCase(); lastCode = code;
+  if (!/^[A-Z0-9]{4}$/.test(code)){ netErr = 'Room codes are four letters or digits.'; showPage('err'); return; }
+  netLeave(); netWait('Joining room ' + code + '…');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return netFail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'wait') return;
+  const peer = new P(peerOpts());
+  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false};
+  const me = net;
+  peer.on('open', () => {
+    if (net !== me) return;
+    const conn = peer.connect(NET_PREFIX + code, {reliable: true, serialization: 'json'});
+    me.conn = conn;
+    conn.on('open', () => conn.send({t: 'hello', v: 1}));
+    conn.on('data', d => netRecv(d, conn));
+    conn.on('close', () => { if (net === me) netFail(me.joined ? 'The host closed the room.' : 'The room closed before you got in.'); });
+    conn.on('error', () => { if (net === me) netFail('The connection to the host failed.'); });
+  });
+  peer.on('error', err => {
+    if (net !== me) return;
+    if (err.type === 'peer-unavailable') netFail('No room called ' + code + '. Check the code with the host.');
+    else netFail('Connection problem (' + (err.type || 'error') + ').');
+  });
+  setTimeout(() => { if (net === me && !me.joined) netFail('Couldn’t reach room ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
+}
+function netDrop(conn){
+  if (!net || net.role !== 'host') return;
+  const info = net.conns.get(conn); if (!info) return;
+  net.conns.delete(conn); try{ conn.close(); }catch(_){}
+  const r = riders.get(info.id);
+  if (r && r.alive && (state === 'run' || state === 'countdown')) emit({t:'crash', id: info.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3)});
+  roster = roster.filter(q => q.id !== info.id); delete scores[info.id];
+  emit({t:'roster', roster, scores});
+}
+function netRecv(d, conn){
+  if (!net || !d || typeof d !== 'object') return;
+  const now = performance.now()/1000;
+  if (net.role === 'host'){
+    if (d.t === 'hello'){
+      if (roster.length >= MAX_RIDERS){ conn.send({t:'full'}); setTimeout(() => { try{ conn.close(); }catch(_){} }, 300); return; }
+      const id = 'p' + (net.nextId++);
+      net.conns.set(conn, {id, last: now});
+      roster.push({id, c: freeColor(), bot: false}); scores[id] = scores[id] || 0;
+      conn.send({t:'welcome', id, roster, scores, state, round});
+      emit({t:'roster', roster, scores});
+      return;
+    }
+    const info = net.conns.get(conn); if (!info) return;
+    info.last = now;
+    if (d.t !== 'turn' && d.t !== 'crash' && d.t !== 'pos' && d.t !== 'ping') return;   // joiners may only speak for their own bike
+    if (d.t === 'ping') return;
+    d.id = info.id;
+    for (const c of net.conns.keys()) if (c !== conn && c.open) c.send(d);
+    apply(d);
+  } else {
+    net.hostLast = now;
+    if (d.t === 'welcome'){
+      net.joined = true; mode = 'online'; myId = d.id; roster = d.roster; scores = d.scores || {}; round = d.round || 0;
+      state = d.state === 'lobby' || d.state === 'idle' ? 'lobby' : 'spectate';
+      syncRiders();
+      if (state === 'lobby') showPage('lobby'); else { showPage(null); $('#hud').hidden = false; flash('JOINED', 'YOU RIDE NEXT ROUND'); drawBoard(); }
+      return;
+    }
+    if (d.t === 'full'){ netFail('That room is full (' + MAX_RIDERS + ' riders).'); return; }
+    if (d.t === 'ping') return;
+    apply(d);
+  }
+}
+// keep links alive and notice silent ones
+let pingT = 0, posT = 0;
+function netTick(dt){
+  if (!net) return;
+  const now = performance.now()/1000;
+  pingT -= dt;
+  if (pingT <= 0){ pingT = 1; netSend({t:'ping'}); }
+  if (net.role === 'host'){ for (const [c, info] of [...net.conns]) if (now - info.last > NET_TIMEOUT) netDrop(c); }
+  else if (net.joined && now - net.hostLast > NET_TIMEOUT) netFail('Lost the connection to the host.');
+  // a few position updates a second keep everyone's view of our bike honest between turns
+  posT -= dt;
+  if (posT <= 0 && state === 'run'){
+    posT = 0.15;
+    for (const r of riders.values()) if (owns(r) && r.alive) netSend({t:'pos', id: r.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3), d: r.dir, tr: +tRun.toFixed(3)});
+  }
+}
+
+/* ---------- input: keyboard, touch, controller ---------- */
+let leaveArm = 0;
+function localTurn(delta){ audio(); const me = riders.get(myId); if (me) ownTurn(me, delta); }
+function tryLeave(){
+  if (leaveArm > 0){ leaveArm = 0; toMenu(); return; }
+  leaveArm = 2; flash('LEAVE?', mode === 'online' ? 'PRESS AGAIN TO LEAVE THE ROOM' : 'PRESS AGAIN FOR THE MENU');
+}
+window.addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  const inGame = state === 'run' || state === 'countdown' || state === 'over' || state === 'spectate';
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA'){ e.preventDefault(); localTurn(-1); }
+  else if (e.code === 'ArrowRight' || e.code === 'KeyD'){ e.preventDefault(); localTurn(1); }
+  else if (e.code === 'Escape' && inGame) tryLeave();
+});
+document.querySelectorAll('#touch button').forEach(b => b.addEventListener('pointerdown', e => {
+  e.preventDefault(); b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 120); localTurn(+b.dataset.t);
+}));
+// controllers: the browser shows one after a button is pressed while the page has focus
+let gpOn = false; const gpPrev = [];
+let gpNavT = 0, gpNavHeld = false, gpStickArm = true;
+function gpGet(){ const l = navigator.getGamepads ? navigator.getGamepads() : []; let any = null; for (const g of l){ if (!g || !g.connected) continue; if (g.mapping === 'standard') return g; any = any || g; } return any; }
+function gpRumble(s, w, ms){ const g = gpGet(), a = g && g.vibrationActuator; if (a && a.playEffect){ try{ const p = a.playEffect('dual-rumble', {duration: ms, strongMagnitude: s, weakMagnitude: w}); if (p && p.catch) p.catch(()=>{}); }catch(_){} } }
+function gpUpdate(dt){
+  const g = gpGet(); if (!g) return;
+  if (!gpOn){ gpOn = true; updateHint(); }
+  const down = i => !!(g.buttons[i] && g.buttons[i].pressed), pressed = i => down(i) && !gpPrev[i];
+  const lx = g.axes[0] || 0, ly = g.axes[1] || 0;
+  if (!$('#menu').hidden){
+    const btns = [...document.querySelectorAll('#card .btn:not(.off)')];
+    if (btns.length){
+      let cur = btns.findIndex(b => b.classList.contains('gp'));
+      if (cur < 0){ cur = 0; btns.forEach(b => b.classList.remove('gp')); btns[0].classList.add('gp'); }
+      let dir = 0; if (down(12) || ly < -0.6 || down(14) || lx < -0.6) dir = -1; else if (down(13) || ly > 0.6 || down(15) || lx > 0.6) dir = 1;
+      if (dir){ gpNavT -= dt; if (gpNavT <= 0){ gpNavT = gpNavHeld ? 0.16 : 0.38; gpNavHeld = true; const n = (cur + dir + btns.length) % btns.length; btns.forEach(b => b.classList.remove('gp')); btns[n].classList.add('gp'); btns[n].focus({preventScroll:true}); cur = n; tone(660, 0.04, 'sine', 0.02); } }
+      else { gpNavT = 0; gpNavHeld = false; }
+      if (pressed(0)){ audio(); btns[cur].click(); }
+      if (pressed(1)){ const back = btns.find(b => ['menu','leave','cancel'].includes(b.dataset.id)); if (back) back.click(); }
+    }
+  } else {
+    if (pressed(14) || pressed(4)) localTurn(-1);
+    if (pressed(15) || pressed(5)) localTurn(1);
+    // a flick of the stick turns once; it has to come back to the middle before the next
+    if (gpStickArm && Math.abs(lx) > 0.7){ localTurn(lx < 0 ? -1 : 1); gpStickArm = false; }
+    if (Math.abs(lx) < 0.3) gpStickArm = true;
+    if (pressed(9)) tryLeave();
+  }
+  for (let i=0;i<g.buttons.length;i++) gpPrev[i] = down(i);
+}
+window.addEventListener('gamepadconnected', () => { gpOn = true; updateHint(); });
+
+/* ---------- frame loop ---------- */
+function resize(){ const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+window.addEventListener('resize', resize); resize();
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, Math.max(0, (now - last)/1000)); last = now;
+  gpUpdate(dt);
+  if (leaveArm > 0) leaveArm -= dt;
+  if (state === 'countdown'){
+    cd -= dt;
+    const n = Math.ceil(cd);
+    if (n < lastBeep && n > 0){ lastBeep = n; sfxBeep(false); $('#msg').innerHTML = String(n) + '<small>ROUND ' + round + '</small>'; msgT = 1; }
+    if (cd <= 0){ state = 'run'; tRun = 0; sfxBeep(true); flash('GO'); msgT = 0.7; }
+  } else if (state === 'run'){
+    const t0 = tRun; tRun += dt;
+    for (const r of riders.values()){
+      if (!r.inRound || !r.alive) continue;
+      if (owns(r)){ if (r.bot) botThink(r, dt); moveOwned(r, t0, tRun); }
+      else moveRemote(r);
+    }
+    const me = riders.get(myId);
+    engT -= dt; if (engT <= 0){ engT = 0.1; engineSet(!!(me && me.alive && me.inRound), speedAt(tRun)); }
+  }
+  if (isAuth()) authTick(dt);
+  netTick(dt);
+  if (msgT > 0){ msgT -= dt; if (msgT <= 0) $('#msg').innerHTML = ''; }
+  updateBikes(dt); updateSparks(dt); updateCamera(dt);
+  floorMat.uniforms.uTime.value = wallMat.uniforms.uTime.value = now/1000;
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+showPage('main');
+{ const hm = location.hash.match(/room=([A-Za-z0-9]{4})/); if (hm){ lastCode = hm[1].toUpperCase(); setTimeout(() => netJoin(lastCode), 300); } }
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

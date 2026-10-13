@@ -7,9 +7,12 @@ An endless, procedurally generated city that grows from a single number. Every t
 | Page | What it is |
 | --- | --- |
 | `index.html` | **VR build.** Open it in the Meta Quest browser and press **Enter VR**. Also runs as a flat preview on any computer. |
+| `cycles/` | **Neon Cycles**, a separate light-cycle arena game (solo against bots, or online with room codes). |
 | `desktop.html` | **Full desktop build.** HDR bloom, rain with wet-street reflections, car reflections, chase and cockpit views. |
 
 Once GitHub Pages is on, the links are:
+
+- Neon Cycles: `https://bootleg714.github.io/seed-city/cycles/`
 
 - VR: `https://bootleg714.github.io/seed-city/`
 - Desktop: `https://bootleg714.github.io/seed-city/desktop.html`

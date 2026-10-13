@@ -627,6 +627,45 @@ third (desktop only: new player car, banked turning, online Dogfight).
 
 
 --------------------------------------------------------------------------------
+ 15b. NEON CYCLES (cycles/index.html, started 2026-10-13)
+--------------------------------------------------------------------------------
+
+ A separate light-cycle game in one HTML file, same stack (three.js r128
+ from cdnjs, no build, no assets). Working title; the owner may rename it.
+ "Tron" and its bike design are kept out on purpose (Disney's).
+
+ Rules: 220 x 220 arena, 90-degree turns, every bike leaves a wall; touch
+ any wall and you're out (your walls dissolve). Last rider alive wins the
+ round, first to 5 rounds wins. Speed ramps +2.5%/s to +80% (S(t) is the
+ distance-travelled formula, used by owners and for remote prediction).
+
+ Architecture: one authority (solo player, or the online host) owns the
+ roster, rounds, scores and bots; every rider owns its bike (moves it,
+ decides its own crash). All state changes go through apply(msg) on every
+ peer; the authority uses emit() = apply + broadcast. Messages: roster,
+ round {n, spawns, scores}, turn {id, n, x, z, d, tr}, pos (6/s), crash,
+ roundEnd, matchEnd, plus hello/welcome/full/ping. Remote bikes are drawn
+ from their last turn/pos point along their heading (coast <= 1 s).
+ Networking is the Dogfight design: PeerJS, ids "neoncycles-<CODE>", star
+ with the host relaying and stamping sender ids; joiners mid-round watch
+ and ride next round; #room=CODE links auto-join.
+
+ Collision: walls are axis-aligned boxes (HIT_R 0.42); bikes test points
+ every 0.3 units; the corner just turned is ignored for 1.2 units. Bots
+ look ahead (freeDist) and turn toward the side with more room, plus
+ occasional cut-across turns.
+
+ Controls: A/D or arrows; controller d-pad, LB/RB or a stick flick; touch
+ buttons on phones; Esc/Start twice to leave. Menus are a vertical list
+ (d-pad up/down, A, B). Sound: synth engine hum (updated 10/s), turn
+ blips, crash noise, countdown beeps, win jingle.
+
+ Tested with the PeerJS stand-in (18 checks: walls, turns, rounds, bots,
+ lobby, bots online, turns both ways, score agreement, host leaving).
+ Fixed during testing: riders didn't record their bot flag, so bots were
+ never driven.
+
+--------------------------------------------------------------------------------
  16. IDEAS BACKLOG (discussed, not built)
 --------------------------------------------------------------------------------
 
@@ -647,8 +686,9 @@ third (desktop only: new player car, banked turning, online Dogfight).
  - NEXT (planned with the owner, 2026-10-12):
    1. Port the third session's desktop work to VR: new car, banked
       turning, Dogfight (owner was editing index.html; pull first).
-   2. New game: Tron-style 3D light cycles, multiplayer, in a /tron/
-      folder of this repo (served at bootleg714.github.io/seed-city/tron/).
+   2. DONE as v1: Neon Cycles in /cycles/ (see section 15b). Next ideas:
+      power-ups, boost, arena variety, music, a link from Seed City's menu.
+      (Originally planned as /tron/ :
       Reuse the Dogfight networking (PeerJS star, room codes, relay).
       Owner loved the arcade original; wants their own 3D style.
    3. Later idea: small multiplayer FPS in a seeded mini city arena,
