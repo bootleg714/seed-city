@@ -665,6 +665,52 @@ third (desktop only: new player car, banked turning, online Dogfight).
  Fixed during testing: riders didn't record their bot flag, so bots were
  never driven.
 
+ 2026-10-13, ported from Neon Cycles DC (the owner's Dreamcast port,
+ github.com/bootleg714/Neon-Cycles-DC, v0.3-v0.18; see its PATCH_*.txt):
+ - Arenas (DC v0.16/17): OPEN GRID, FOUR CORES, SPLIT GATES, CIRCUIT LANES
+   (ARENAS: [x, z, halfW, halfD] blocks, same numbers as DC game.c). Menu
+   and lobby picker: ROTATING (round n uses arena (n-1) % 4) or one arena
+   all match; saved in localStorage 'neoncycles-arena'. The authority puts
+   arena in the round message (also roster.arena = the host's choice for
+   the lobby, welcome.arena / welcome.sel for joiners). Barriers are dark
+   blocks, neon rim, glow bands above the rim and on the floor (DC v0.18:
+   never a glow face coplanar with a solid wall). Outer walls take the
+   arena colour. The DC spawn points are the same, so some spawns meet a
+   barrier early (Circuit Lanes crossbar ~14 units ahead).
+ - Collision now goes through 10-unit buckets (grid, gridAdd on every
+   turn, cleared each round), like DC game.c; crashed riders' entries are
+   skipped. hitAt also tests the arena's barriers.
+ - Bots (DC v0.15): planning map 44x44 (5 units), flood-fill space, exits
+   at 12/24/36 units, attack score for crossing a rival first, penalty for
+   head-on. Personality by colour BOT_ATTACK; lime also prefers space.
+   Think every 0.16-0.29 s, or at once when the way ahead is short.
+ - Spectator (DC v0.7/v0.14): after you crash the camera stays 1.5 s,
+   then follows a random survivor in a north-up overhead view; left/right
+   picks another, V/C (controller Y, touch VIEW) toggles overhead/chase.
+   camTarget() is the one place that decides who is followed (also the
+   audio listener). WATCHING label in #watch.
+ - Rear trail taper (DC v0.13): done in the trail shader. uB/uT/uP give
+   bike, last turn and the turn before; distance is measured along the
+   trail so the low band also follows a fresh corner. Starts 1.45 behind
+   the bike centre, full height after 3 more units.
+ - Crash: 260 sparks, a white flash and an expanding floor ring (boom()).
+ - Sound (DC v0.10): the DC version's supplied samples, rebuilt at 44.1 kHz
+   from its audio_sources/: sfx_turn.wav (pitch rises with speed),
+   sfx_crash.wav (volume by distance, panned), sfx_engine.wav (RUN_LOOP
+   1.8-3.8 s with a 30 ms crossfade). One looping engine per nearby bike,
+   panned, rate .85-1.25 with speed, updated 10/s (gain setTargetAtTime,
+   pan linear ramps). Synth sounds remain as the fallback if a file fails.
+ - Title music (DC v0.5): title_music.mp3, the owner's 60 s edit of
+   "Retro Color Moon" (meditativetiger, supplied by the owner). Plays on
+   the menus after the first click/key/button, stops when a match starts,
+   restarts from the intro.
+ - City (DC v0.3/v0.4): neon_city.png (1024x256, from the DC project) on a
+   ring of radius 520, repeated 8 times, plus 12 dark towers with neon
+   edges at 335-420. Title only (DC v0.11): circuit-board streets outside
+   the arena with lights running along them; the outer grid dims to 22%.
+ - Not ported: DC title logo (it says "DC"), the 8-view sprite bikes, the
+   hardware-only fixes (tile lists, font texture, wall flicker).
+
 --------------------------------------------------------------------------------
  16. IDEAS BACKLOG (discussed, not built)
 --------------------------------------------------------------------------------
@@ -687,7 +733,8 @@ third (desktop only: new player car, banked turning, online Dogfight).
    1. Port the third session's desktop work to VR: new car, banked
       turning, Dogfight (owner was editing index.html; pull first).
    2. DONE as v1: Neon Cycles in /cycles/ (see section 15b). Next ideas:
-      power-ups, boost, arena variety, music, a link from Seed City's menu.
+      power-ups, boost, a link from Seed City's menu (arenas and music came
+      from the DC port).
       (Originally planned as /tron/ :
       Reuse the Dogfight networking (PeerJS star, room codes, relay).
       Owner loved the arcade original; wants their own 3D style.
