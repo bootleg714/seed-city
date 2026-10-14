@@ -279,89 +279,166 @@ function updateCircuit(t){
   clGeo.attributes.position.needsUpdate = true;
 }
 
-/* ---------- riders: an original neon sport bike and rider, dark armour with neon outlines ----------
-   Faces -z. Spoked wheels with glowing rims (they spin with speed), an angular fairing between the
-   wheels, a crouched rider. The rear tyre ends 1.42 behind the centre, where the trail begins. */
-const darkMat = new THREE.MeshBasicMaterial({color:0x070a14});
+/* ---------- smooth 3D cycle, based on the Dreamcast cycle artwork ----------
+   Real hubless wheels, rounded fairing and a crouched rider. Faces -z.
+   Wheel size/centres retain the existing trail attachment and collision scale. */
+const darkMat = new THREE.MeshPhongMaterial({color:0x121d2a, specular:0x607487, shininess:85});
+const shellMat = new THREE.MeshPhongMaterial({color:0x101923, specular:0x26394d, shininess:42});
+const riderMat = new THREE.MeshPhongMaterial({color:0x14202e, specular:0x53677b, shininess:55});
+const rubberMat = new THREE.MeshPhongMaterial({color:0x070b12, specular:0x283341, shininess:28});
+const visorMat = new THREE.MeshPhongMaterial({color:0x07111d, specular:0xb7d9ee, shininess:150});
+// These lights shade only lit model materials; the existing basic/shader arena
+// and skyline retain their own colors. No shadow-map cost per rider.
+scene.add(new THREE.HemisphereLight(0xc7e8ff, 0x151c2a, 0.9));
+const bikeKey = new THREE.DirectionalLight(0xd9edff, 1.1); bikeKey.position.set(-4,8,-6); scene.add(bikeKey);
+const bikeFill = new THREE.DirectionalLight(0x6895c7, 0.65); bikeFill.position.set(5,3,5); scene.add(bikeFill);
 const padTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const x = cv.getContext('2d'); const gr = x.createRadialGradient(32,32,0,32,32,32); gr.addColorStop(0,'rgba(255,255,255,.9)'); gr.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0,0,64,64); return new THREE.CanvasTexture(cv); })();
-const riderMat = new THREE.MeshBasicMaterial({color:0x0b0f1c});
 const WHEEL_R = 0.42;
+const bikeSphere = new THREE.SphereGeometry(1, 24, 16);
+// Bake static parts sharing a material into one indexed mesh. Keep wheel groups
+// separate for animation and the ground pad separate for transparent sorting.
+function packBikeMeshes(root, keep=[]){
+  root.updateMatrixWorld(true);
+  const inverse=new THREE.Matrix4().copy(root.matrixWorld).invert(), groups=new Map(), found=[];
+  const walk=node=>{
+    if(keep.includes(node))return;
+    if(node.isMesh){let list=groups.get(node.material);if(!list)groups.set(node.material,list=[]);list.push(node);found.push(node);}
+    for(const child of node.children)walk(child);
+  };for(const child of root.children)walk(child);
+  for(const [material, meshes] of groups){
+    const P=[],N=[],U=[],I=[];let offset=0;
+    const v=new THREE.Vector3(),normal=new THREE.Vector3();
+    for(const mesh of meshes){
+      const geo=mesh.geometry, pos=geo.attributes.position, nor=geo.attributes.normal, uv=geo.attributes.uv;
+      const matrix=new THREE.Matrix4().multiplyMatrices(inverse,mesh.matrixWorld), normals=new THREE.Matrix3().getNormalMatrix(matrix);
+      for(let i=0;i<pos.count;i++){
+        v.fromBufferAttribute(pos,i).applyMatrix4(matrix);P.push(v.x,v.y,v.z);
+        normal.fromBufferAttribute(nor,i).applyMatrix3(normals).normalize();N.push(normal.x,normal.y,normal.z);
+        U.push(uv?uv.getX(i):0,uv?uv.getY(i):0);
+      }
+      const idx=geo.index;for(let i=0;i<(idx?idx.count:pos.count);i++)I.push(offset+(idx?idx.getX(i):i));offset+=pos.count;
+    }
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));geo.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));geo.setIndex(I);geo.computeBoundingSphere();
+    root.add(new THREE.Mesh(geo,material));
+  }
+  for(const mesh of found){mesh.parent.remove(mesh);if(mesh.geometry!==bikeSphere)mesh.geometry.dispose();}
+}
 function makeBike(color){
   const g = new THREE.Group(), c = new THREE.Color(color);
-  const edge = new THREE.LineBasicMaterial({color: c});
-  const edgeDim = new THREE.LineBasicMaterial({color: c.clone().multiplyScalar(0.55)});
-  const glow = new THREE.MeshBasicMaterial({color: c});
-  const glowDim = new THREE.MeshBasicMaterial({color: c.clone().multiplyScalar(0.4)});
-  const outline = (m, mat) => { const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 25), mat); m.add(e); return m; };
-  const put = (parent, geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
-  // a box from point a to point b (local coords), for frame tubes and limbs
-  const limb = (parent, a, b, w, h, mat, lines) => {
-    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), len = A.distanceTo(B);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, len), mat);
-    m.position.copy(A).add(B).multiplyScalar(0.5); m.lookAt(B.clone().add(g.position)); parent.add(m);
-    if (lines) outline(m, lines); return m;
+  const glow = new THREE.MeshBasicMaterial({color:c});
+  const dim = new THREE.MeshBasicMaterial({color:c.clone().multiplyScalar(0.45)});
+  const halo = new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:0.12, blending:THREE.AdditiveBlending, depthWrite:false});
+  const put = (parent, geo, mat, x=0, y=0, z=0) => { const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); parent.add(m); return m; };
+  const oval = (parent, at, scale, mat) => { const m=put(parent,bikeSphere,mat,...at); m.scale.set(...scale); return m; };
+  const pipe = (parent, points, radius=0.012, mat=glow) => {
+    const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)),false,'centripetal');
+    return put(parent,new THREE.TubeGeometry(curve,Math.max(12,points.length*6),radius,6,false),mat);
   };
-  // a rounded (six-sided) tapered part from a to b, radius ra at a and rb at b, flattened by sy
-  const part = (parent, a, b, ra, rb, sy) => {
-    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(rb, ra, A.distanceTo(B), 6).rotateX(Math.PI/2), riderMat);
-    m.position.copy(A).add(B).multiplyScalar(0.5); m.lookAt(B); m.scale.y = sy || 1; parent.add(m);
-    return outline(m, edgeDim);
+  const bone = (parent, a, b, ra, rb, mat=riderMat) => {
+    const A=new THREE.Vector3(...a), B=new THREE.Vector3(...b), axis=B.clone().sub(A);
+    const m=put(parent,new THREE.CylinderGeometry(rb,ra,axis.length(),20),mat);
+    m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),axis.normalize());
+    oval(parent,a,[ra,ra,ra],mat); oval(parent,b,[rb,rb,rb],mat); return m;
   };
-  // wheels
-  const wheels = [];
-  for (const z of [-1.0, 1.0]){
-    const w = new THREE.Group(); w.position.set(0, WHEEL_R, z); g.add(w);
-    put(w, new THREE.TorusGeometry(WHEEL_R - 0.06, 0.07, 8, 28).rotateY(Math.PI/2), darkMat, 0, 0, 0);                  // tyre
-    for (const s of [-1, 1]) put(w, new THREE.TorusGeometry(WHEEL_R - 0.1, 0.018, 4, 32).rotateY(Math.PI/2), glow, s*0.05, 0, 0);   // rim lights
-    put(w, new THREE.CylinderGeometry(0.1, 0.1, 0.16, 12).rotateZ(Math.PI/2), darkMat, 0, 0, 0);                         // hub
-    put(w, new THREE.TorusGeometry(0.1, 0.014, 4, 16).rotateY(Math.PI/2), glow, 0.085, 0, 0);
-    put(w, new THREE.TorusGeometry(0.1, 0.014, 4, 16).rotateY(Math.PI/2), glow, -0.085, 0, 0);
-    for (let k=0;k<5;k++){ const sp = put(w, new THREE.BoxGeometry(0.03, WHEEL_R - 0.2, 0.035), glowDim, 0, 0, 0); sp.rotation.x = k*Math.PI*2/5; sp.translateY((WHEEL_R - 0.2)/2 + 0.08); }
+  // Broad rounded tyres, hollow centres and uninterrupted neon side rings.
+  // The local x-axis is the axle, matching the existing wheel-spin update.
+  const wheels=[];
+  for(const z of [-1,1]){
+    const w=new THREE.Group(); w.position.set(0,WHEEL_R,z); g.add(w);
+    const tyre=put(w,new THREE.TorusGeometry(0.35,0.07,16,64).rotateY(Math.PI/2),rubberMat); tyre.scale.x=2.35;
+    for(const s of [-1,1]){
+      put(w,new THREE.TorusGeometry(0.328,0.022,10,64).rotateY(Math.PI/2),glow,s*0.151);
+      put(w,new THREE.TorusGeometry(0.328,0.048,10,64).rotateY(Math.PI/2),halo,s*0.154);
+      put(w,new THREE.TorusGeometry(0.279,0.018,8,48).rotateY(Math.PI/2),darkMat,s*0.117);
+    }
+    // A few inset tread bars are dark details, rather than glowing spokes.
+    for(let k=0;k<12;k++){
+      const a=k*Math.PI*2/12, tread=put(w,new THREE.BoxGeometry(0.22,0.012,0.035),darkMat,0,Math.cos(a)*0.413,Math.sin(a)*0.413); tread.rotation.x=a;
+    }
     wheels.push(w);
   }
-  // fairing: an angular side profile extruded across the bike
-  const prof = [[-0.86,0.76],[-0.74,0.98],[-0.36,1.08],[0.08,0.93],[0.52,0.96],[0.94,1.13],[1.06,1.07],[0.8,0.87],[0.36,0.5],[-0.3,0.44],[-0.72,0.56]];
-  const shape = new THREE.Shape(); prof.forEach(([x, y], i) => i ? shape.lineTo(x, y) : shape.moveTo(x, y)); shape.closePath();
-  const body = new THREE.ExtrudeGeometry(shape, {depth: 0.42, bevelEnabled: false}); body.translate(0, 0, -0.21); body.rotateY(-Math.PI/2);
-  outline(put(g, body, darkMat, 0, 0, 0), edge);
-  // side light lines along the fairing, a headlight bar and a tail light
-  for (const s of [-1, 1]){
-    limb(g, [s*0.215, 0.82, -0.7], [s*0.215, 0.74, 0.35], 0.02, 0.035, glow);
-    limb(g, [s*0.215, 0.74, 0.35], [s*0.215, 0.98, 0.95], 0.02, 0.035, glow);
-    limb(g, [s*0.215, 0.62, -0.2], [s*0.215, 0.62, 0.25], 0.02, 0.025, glowDim);
+  // One flowing monocoque: the top joins the wheel shoulders and rear cowl;
+  // two open underside arches expose the hubless wheels without separate fins.
+  const profile=new THREE.Shape();profile.moveTo(-1.49,0.42);
+  profile.bezierCurveTo(-1.47,0.76,-1.23,1.025,-1.00,1.035);
+  profile.bezierCurveTo(-0.80,1.035,-0.67,1.13,-0.46,1.02);
+  profile.bezierCurveTo(-0.17,0.96,0.05,1.00,0.34,1.045);
+  profile.bezierCurveTo(0.66,1.10,1.06,1.075,1.22,0.98);
+  profile.bezierCurveTo(1.44,0.84,1.49,0.59,1.49,0.42);
+  profile.lineTo(1.45,0.42);
+  profile.bezierCurveTo(1.45,0.669,1.249,0.87,1.00,0.87);
+  profile.bezierCurveTo(0.751,0.87,0.55,0.669,0.55,0.42);
+  profile.bezierCurveTo(0.54,0.33,0.50,0.23,0.39,0.23);
+  profile.bezierCurveTo(0.10,0.28,-0.21,0.21,-0.51,0.23);
+  profile.bezierCurveTo(-0.57,0.25,-0.57,0.35,-0.55,0.42);
+  profile.bezierCurveTo(-0.55,0.669,-0.751,0.87,-1.00,0.87);
+  profile.bezierCurveTo(-1.249,0.87,-1.45,0.669,-1.45,0.42);
+  profile.closePath();
+  const shell=new THREE.ExtrudeGeometry(profile,{depth:0.36,steps:1,curveSegments:24,bevelEnabled:true,bevelSegments:5,bevelSize:0.025,bevelThickness:0.05});
+  shell.translate(0,0,-0.18);shell.rotateY(-Math.PI/2);
+  // Smooth adjoining bevel/arch triangles, keeping the large side caps flat.
+  const pos=shell.attributes.position, norm=shell.attributes.normal, sums=new Map();
+  const normalKey=i=>[pos.getX(i),pos.getY(i),pos.getZ(i)].map(v=>Math.round(v*100000)).join(',')+(Math.abs(norm.getX(i))>.999?'cap':'skin');
+  for(let i=0;i<pos.count;i++){const key=normalKey(i),n=sums.get(key)||new THREE.Vector3();n.x+=norm.getX(i);n.y+=norm.getY(i);n.z+=norm.getZ(i);sums.set(key,n);}
+  const keys=Array.from({length:pos.count},(_,i)=>normalKey(i));
+  for(let i=0;i<pos.count;i++){const n=sums.get(keys[i]).clone().normalize();norm.setXYZ(i,n.x,n.y,n.z);}
+  put(g,shell,shellMat);
+  // Rounded spine blends the flat side skin into the top; saddle stays low
+  // and disappears into the cowl instead of becoming a separate raised seat.
+  oval(g,[0,0.995,-0.10],[0.23,0.072,0.46],shellMat);
+  oval(g,[0,1.045,0.73],[0.225,0.064,0.50],shellMat);
+  oval(g,[0,1.035,0.35],[0.16,0.022,0.25],rubberMat);
+  for(const s of [-1,1]){
+    const x=s*0.24;
+    // Wheel light follows the tyre, not a disconnected arch above its cover.
+    // Broad forward hook: its vertical return meets the low belly at the nose.
+    pipe(g,[[x,0.27,-0.55],[x,0.49,-0.56],[x,0.72,-0.48],[x,0.83,-0.24],[x,0.88,0.03]],0.019);
+    // Rear swoosh rises along the flank, then wraps forward over the cowl.
+    pipe(g,[[x,0.91,0.13],[x,0.93,0.33],[x,0.99,0.58],[x,1.015,0.45],[x,1.00,0.16],[x,0.99,-0.08]],0.024);
+    pipe(g,[[s*0.20,1.06,-0.65],[s*0.19,1.075,-0.85],[s*0.12,1.052,-1.09]],0.008,dim);
+    pipe(g,[[x,0.255,-0.46],[x,0.275,0.08],[x,0.27,0.36]],0.007,dim);
+    // Broad recessed panel and branched luminous circuitry, like the reference.
+    oval(g,[s*0.234,0.62,-0.02],[0.014,0.115,0.245],rubberMat);
+    const P=[];
+    for(let i=0;i<4;i++){
+      const y=0.555+i*0.044, z=-0.20+i*0.014;
+      P.push(s*0.251,y,z,s*0.251,y,z+0.12,s*0.251,y,z+0.12,s*0.251,y+0.022,z+0.155,s*0.251,y+0.022,z+0.155,s*0.251,y+0.022,z+0.28);
+    }
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));g.add(new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:c})));
   }
-  put(g, new THREE.BoxGeometry(0.3, 0.06, 0.04), new THREE.MeshBasicMaterial({color:0xffffff}), 0, 0.86, -0.87);
-  put(g, new THREE.BoxGeometry(0.34, 0.05, 0.04), glow, 0, 1.09, 1.06);
-  // windscreen
-  const ws = put(g, new THREE.PlaneGeometry(0.34, 0.26), new THREE.MeshBasicMaterial({color: c, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide}), 0, 1.13, -0.68);
-  ws.rotation.x = -0.9;
-  // fork, swingarm, bars
-  for (const s of [-1, 1]){
-    limb(g, [s*0.1, WHEEL_R, -1.0], [s*0.13, 1.02, -0.74], 0.05, 0.05, darkMat, edgeDim);
-    limb(g, [s*0.11, WHEEL_R, 1.0], [s*0.13, 0.6, 0.35], 0.05, 0.07, darkMat, edgeDim);
+  // Low bars and a compact visor-shaped headlight.
+  bone(g,[-0.27,1.04,-0.63],[0.27,1.04,-0.63],0.022,0.022,rubberMat);
+  oval(g,[0,1.015,-1.10],[0.10,0.013,0.025],glow);
+  oval(g,[0,0.94,1.27],[0.16,0.022,0.045],glow);
+  // Smooth armoured rider, leaning forward with bent arms and folded legs.
+  const R=new THREE.Group();g.add(R);
+  const torso=oval(R,[0,1.18,0.06],[0.20,0.16,0.43],riderMat);torso.rotation.x=0.27;
+  oval(R,[0,1.06,0.40],[0.17,0.11,0.19],riderMat);
+  bone(R,[0,1.29,-0.23],[0,1.34,-0.35],0.063,0.06);
+  const helmet=oval(R,[0,1.40,-0.42],[0.17,0.16,0.22],darkMat);helmet.rotation.x=-0.12;
+  const visor=oval(R,[0,1.41,-0.553],[0.149,0.079,0.082],visorMat);visor.rotation.x=-0.14;
+  pipe(R,[[-0.138,1.37,-0.54],[-0.09,1.335,-0.60],[0,1.32,-0.63],[0.09,1.335,-0.60],[0.138,1.37,-0.54]],0.009);
+  pipe(R,[[0,1.55,-0.46],[0,1.55,-0.33],[0,1.47,-0.23]],0.008,dim);
+  for(const s of [-1,1]){
+    const shoulder=[s*0.17,1.29,-0.23], elbow=[s*0.25,1.12,-0.40], hand=[s*0.25,1.04,-0.64];
+    bone(R,shoulder,elbow,0.065,0.052);bone(R,elbow,hand,0.052,0.038);
+    oval(R,hand,[0.049,0.035,0.064],rubberMat);
+    const hip=[s*0.12,1.06,0.40], knee=[s*0.27,0.77,-0.02], ankle=[s*0.26,0.49,0.37];
+    bone(R,hip,knee,0.085,0.07);bone(R,knee,ankle,0.065,0.047);
+    oval(R,[s*0.26,0.46,0.31],[0.069,0.048,0.14],rubberMat);
+    oval(R,shoulder,[0.077,0.063,0.095],darkMat);oval(R,knee,[0.081,0.075,0.072],darkMat);
+    pipe(R,[[s*0.16,1.32,-0.24],[s*0.18,1.34,-0.03],[s*0.17,1.24,0.29],[s*0.13,1.15,0.49]],0.009);
+    pipe(R,[[s*0.21,1.28,-0.25],[s*0.287,1.13,-0.41],[s*0.283,1.055,-0.61]],0.006,dim);
+    pipe(R,[[s*0.29,0.76,-0.01],[s*0.29,0.59,0.23],[s*0.28,0.51,0.37]],0.008,dim);
   }
-  limb(g, [-0.3, 1.06, -0.72], [0.3, 1.06, -0.72], 0.04, 0.04, darkMat, edgeDim);
-  // the rider, crouched over the tank
-  const R = new THREE.Group(); g.add(R);
-  part(R, [0, 1.06, 0.4], [0, 1.36, -0.2], 0.13, 0.19, 0.7);                                    // torso
-  part(R, [0, 1.34, -0.2], [0, 1.4, -0.3], 0.07, 0.06);                                          // neck
-  const helm = put(R, new THREE.IcosahedronGeometry(0.17, 1), riderMat, 0, 1.46, -0.38); helm.scale.set(0.95, 0.92, 1.18); outline(helm, edgeDim);
-  put(R, new THREE.BoxGeometry(0.22, 0.05, 0.04), glow, 0, 1.47, -0.565);                        // visor
-  limb(R, [0, 1.6, -0.36], [0, 1.52, 0.02], 0.03, 0.03, glow);                                    // helmet stripe
-  for (const s of [-1, 1]){
-    part(R, [s*0.17, 1.34, -0.18], [s*0.23, 1.2, -0.44], 0.05, 0.045);                          // upper arm
-    part(R, [s*0.23, 1.2, -0.44], [s*0.27, 1.08, -0.7], 0.045, 0.04);                           // forearm
-    part(R, [s*0.13, 1.06, 0.36], [s*0.25, 0.88, -0.05], 0.08, 0.065);                          // thigh
-    part(R, [s*0.25, 0.88, -0.05], [s*0.24, 0.62, 0.34], 0.06, 0.045);                          // shin
-    put(R, new THREE.BoxGeometry(0.09, 0.07, 0.2), riderMat, s*0.24, 0.6, 0.32);                // boot
-    limb(R, [s*0.2, 1.36, -0.2], [s*0.2, 1.1, 0.34], 0.015, 0.03, glow);                        // suit line on the back
-    limb(R, [s*0.27, 0.87, -0.04], [s*0.25, 0.62, 0.34], 0.015, 0.03, glowDim);
-  }
-  // a soft light pool on the floor under the bike
-  const pad = put(g, new THREE.PlaneGeometry(1.1, 2.9).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:c, map: padTex, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, depthWrite:false}), 0, 0.02, 0);
-  g.userData = {wheels, pad};
-  return g;
+  const pad=put(g,new THREE.PlaneGeometry(1.1,2.9).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:c,map:padTex,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}),0,0.02,0);
+  for(const w of wheels)packBikeMeshes(w);
+  packBikeMeshes(g,[...wheels,pad]);
+  g.userData={wheels,pad,dispose:()=>{
+    const geos=new Set(),mats=new Set(),shared=[darkMat,shellMat,riderMat,rubberMat,visorMat];
+    g.traverse(m=>{if(m.geometry)geos.add(m.geometry);if(m.material&&!shared.includes(m.material))mats.add(m.material);});
+    for(const geo of geos)geo.dispose();for(const mat of mats)mat.dispose();
+  }};return g;
 }
 // light walls: one box per straight piece, bright along the top
 function trailMat(color){
@@ -569,7 +646,7 @@ function clearRider(r){
   for (const d of r.derez) scene.remove(d.m);
   r.segs = []; r.segMesh = []; r.cur = null; r.derez = [];
 }
-function dropRider(id){ const r = riders.get(id); if (!r) return; clearRider(r); scene.remove(r.bike); riders.delete(id); }
+function dropRider(id){ const r = riders.get(id); if (!r) return; clearRider(r); scene.remove(r.bike); r.bike.userData.dispose(); riders.delete(id); }
 function syncRiders(){
   for (const id of [...riders.keys()]) if (!roster.find(q => q.id === id)) dropRider(id);
   for (const q of roster) if (!riders.has(q.id)) riders.set(q.id, makeRider(q.id));
