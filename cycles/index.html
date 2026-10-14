@@ -279,31 +279,88 @@ function updateCircuit(t){
   clGeo.attributes.position.needsUpdate = true;
 }
 
-/* ---------- riders: an original hover-bike, drawn as dark armour with neon outlines ---------- */
+/* ---------- riders: an original neon sport bike and rider, dark armour with neon outlines ----------
+   Faces -z. Spoked wheels with glowing rims (they spin with speed), an angular fairing between the
+   wheels, a crouched rider. The rear tyre ends 1.42 behind the centre, where the trail begins. */
 const darkMat = new THREE.MeshBasicMaterial({color:0x070a14});
+const padTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const x = cv.getContext('2d'); const gr = x.createRadialGradient(32,32,0,32,32,32); gr.addColorStop(0,'rgba(255,255,255,.9)'); gr.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0,0,64,64); return new THREE.CanvasTexture(cv); })();
+const riderMat = new THREE.MeshBasicMaterial({color:0x0b0f1c});
+const WHEEL_R = 0.42;
 function makeBike(color){
   const g = new THREE.Group(), c = new THREE.Color(color);
   const edge = new THREE.LineBasicMaterial({color: c});
+  const edgeDim = new THREE.LineBasicMaterial({color: c.clone().multiplyScalar(0.55)});
   const glow = new THREE.MeshBasicMaterial({color: c});
-  const add = (geo, mat, x, y, z, outline) => { const m = new THREE.Mesh(geo, mat); m.position.set(x,y,z); g.add(m);
-    if (outline){ const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), edge); e.position.copy(m.position); e.rotation.copy(m.rotation); g.add(e); } return m; };
-  // body: a long wedge, low at the nose (faces -z)
-  const body = new THREE.BoxGeometry(0.9, 0.55, 2.8).toNonIndexed();
-  { const p = body.attributes.position; for (let i=0;i<p.count;i++){ const z = p.getZ(i), y = p.getY(i); if (z < 0 && y > 0) p.setY(i, y - 0.32); if (z < 0) p.setX(i, p.getX(i)*0.62); } body.computeVertexNormals(); }
-  add(body, darkMat, 0, 0.75, 0, true);
-  // canopy and tail fins
-  const can = new THREE.BoxGeometry(0.55, 0.32, 0.9).toNonIndexed();
-  { const p = can.attributes.position; for (let i=0;i<p.count;i++) if (p.getY(i) > 0) p.setX(i, p.getX(i)*0.55); can.computeVertexNormals(); }
-  add(can, darkMat, 0, 1.15, 0.25, true);
-  for (const s of [-1,1]){
-    const fin = add(new THREE.BoxGeometry(0.06, 0.5, 0.8), darkMat, s*0.5, 1.05, 1.0, true); fin.rotation.z = s*0.35;
-    add(new THREE.BoxGeometry(0.05, 0.06, 2.4), glow, s*0.47, 0.62, 0.05);            // side light lines
+  const glowDim = new THREE.MeshBasicMaterial({color: c.clone().multiplyScalar(0.4)});
+  const outline = (m, mat) => { const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 25), mat); m.add(e); return m; };
+  const put = (parent, geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  // a box from point a to point b (local coords), for frame tubes and limbs
+  const limb = (parent, a, b, w, h, mat, lines) => {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), len = A.distanceTo(B);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, len), mat);
+    m.position.copy(A).add(B).multiplyScalar(0.5); m.lookAt(B.clone().add(g.position)); parent.add(m);
+    if (lines) outline(m, lines); return m;
+  };
+  // a rounded (six-sided) tapered part from a to b, radius ra at a and rb at b, flattened by sy
+  const part = (parent, a, b, ra, rb, sy) => {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(rb, ra, A.distanceTo(B), 6).rotateX(Math.PI/2), riderMat);
+    m.position.copy(A).add(B).multiplyScalar(0.5); m.lookAt(B); m.scale.y = sy || 1; parent.add(m);
+    return outline(m, edgeDim);
+  };
+  // wheels
+  const wheels = [];
+  for (const z of [-1.0, 1.0]){
+    const w = new THREE.Group(); w.position.set(0, WHEEL_R, z); g.add(w);
+    put(w, new THREE.TorusGeometry(WHEEL_R - 0.06, 0.07, 8, 28).rotateY(Math.PI/2), darkMat, 0, 0, 0);                  // tyre
+    for (const s of [-1, 1]) put(w, new THREE.TorusGeometry(WHEEL_R - 0.1, 0.018, 4, 32).rotateY(Math.PI/2), glow, s*0.05, 0, 0);   // rim lights
+    put(w, new THREE.CylinderGeometry(0.1, 0.1, 0.16, 12).rotateZ(Math.PI/2), darkMat, 0, 0, 0);                         // hub
+    put(w, new THREE.TorusGeometry(0.1, 0.014, 4, 16).rotateY(Math.PI/2), glow, 0.085, 0, 0);
+    put(w, new THREE.TorusGeometry(0.1, 0.014, 4, 16).rotateY(Math.PI/2), glow, -0.085, 0, 0);
+    for (let k=0;k<5;k++){ const sp = put(w, new THREE.BoxGeometry(0.03, WHEEL_R - 0.2, 0.035), glowDim, 0, 0, 0); sp.rotation.x = k*Math.PI*2/5; sp.translateY((WHEEL_R - 0.2)/2 + 0.08); }
+    wheels.push(w);
   }
-  // the engine ring at the back, and a glowing hover pad underneath
-  const ring = add(new THREE.TorusGeometry(0.36, 0.06, 6, 20), glow, 0, 0.78, 1.42);
-  add(new THREE.CircleGeometry(0.22, 16), new THREE.MeshBasicMaterial({color:0xffffff}), 0, 0.78, 1.43);
-  const pad = add(new THREE.PlaneGeometry(0.9, 2.4).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:c, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false}), 0, 0.12, 0);
-  g.userData = {ring, pad};
+  // fairing: an angular side profile extruded across the bike
+  const prof = [[-0.86,0.76],[-0.74,0.98],[-0.36,1.08],[0.08,0.93],[0.52,0.96],[0.94,1.13],[1.06,1.07],[0.8,0.87],[0.36,0.5],[-0.3,0.44],[-0.72,0.56]];
+  const shape = new THREE.Shape(); prof.forEach(([x, y], i) => i ? shape.lineTo(x, y) : shape.moveTo(x, y)); shape.closePath();
+  const body = new THREE.ExtrudeGeometry(shape, {depth: 0.42, bevelEnabled: false}); body.translate(0, 0, -0.21); body.rotateY(-Math.PI/2);
+  outline(put(g, body, darkMat, 0, 0, 0), edge);
+  // side light lines along the fairing, a headlight bar and a tail light
+  for (const s of [-1, 1]){
+    limb(g, [s*0.215, 0.82, -0.7], [s*0.215, 0.74, 0.35], 0.02, 0.035, glow);
+    limb(g, [s*0.215, 0.74, 0.35], [s*0.215, 0.98, 0.95], 0.02, 0.035, glow);
+    limb(g, [s*0.215, 0.62, -0.2], [s*0.215, 0.62, 0.25], 0.02, 0.025, glowDim);
+  }
+  put(g, new THREE.BoxGeometry(0.3, 0.06, 0.04), new THREE.MeshBasicMaterial({color:0xffffff}), 0, 0.86, -0.87);
+  put(g, new THREE.BoxGeometry(0.34, 0.05, 0.04), glow, 0, 1.09, 1.06);
+  // windscreen
+  const ws = put(g, new THREE.PlaneGeometry(0.34, 0.26), new THREE.MeshBasicMaterial({color: c, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide}), 0, 1.13, -0.68);
+  ws.rotation.x = -0.9;
+  // fork, swingarm, bars
+  for (const s of [-1, 1]){
+    limb(g, [s*0.1, WHEEL_R, -1.0], [s*0.13, 1.02, -0.74], 0.05, 0.05, darkMat, edgeDim);
+    limb(g, [s*0.11, WHEEL_R, 1.0], [s*0.13, 0.6, 0.35], 0.05, 0.07, darkMat, edgeDim);
+  }
+  limb(g, [-0.3, 1.06, -0.72], [0.3, 1.06, -0.72], 0.04, 0.04, darkMat, edgeDim);
+  // the rider, crouched over the tank
+  const R = new THREE.Group(); g.add(R);
+  part(R, [0, 1.06, 0.4], [0, 1.36, -0.2], 0.13, 0.19, 0.7);                                    // torso
+  part(R, [0, 1.34, -0.2], [0, 1.4, -0.3], 0.07, 0.06);                                          // neck
+  const helm = put(R, new THREE.IcosahedronGeometry(0.17, 1), riderMat, 0, 1.46, -0.38); helm.scale.set(0.95, 0.92, 1.18); outline(helm, edgeDim);
+  put(R, new THREE.BoxGeometry(0.22, 0.05, 0.04), glow, 0, 1.47, -0.565);                        // visor
+  limb(R, [0, 1.6, -0.36], [0, 1.52, 0.02], 0.03, 0.03, glow);                                    // helmet stripe
+  for (const s of [-1, 1]){
+    part(R, [s*0.17, 1.34, -0.18], [s*0.23, 1.2, -0.44], 0.05, 0.045);                          // upper arm
+    part(R, [s*0.23, 1.2, -0.44], [s*0.27, 1.08, -0.7], 0.045, 0.04);                           // forearm
+    part(R, [s*0.13, 1.06, 0.36], [s*0.25, 0.88, -0.05], 0.08, 0.065);                          // thigh
+    part(R, [s*0.25, 0.88, -0.05], [s*0.24, 0.62, 0.34], 0.06, 0.045);                          // shin
+    put(R, new THREE.BoxGeometry(0.09, 0.07, 0.2), riderMat, s*0.24, 0.6, 0.32);                // boot
+    limb(R, [s*0.2, 1.36, -0.2], [s*0.2, 1.1, 0.34], 0.015, 0.03, glow);                        // suit line on the back
+    limb(R, [s*0.27, 0.87, -0.04], [s*0.25, 0.62, 0.34], 0.015, 0.03, glowDim);
+  }
+  // a soft light pool on the floor under the bike
+  const pad = put(g, new THREE.PlaneGeometry(1.1, 2.9).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:c, map: padTex, transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, depthWrite:false}), 0, 0.02, 0);
+  g.userData = {wheels, pad};
   return g;
 }
 // light walls: one box per straight piece, bright along the top
@@ -855,9 +912,9 @@ function updateBikes(dt){
     const dy = ((ty - r.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
     r.yaw += dy*(1 - Math.exp(-dt*16));
     r.lean += (Math.max(-0.5, Math.min(0.5, -dy*1.2)) - r.lean)*(1 - Math.exp(-dt*10));
-    r.bike.position.set(r.x, 0.06*Math.sin(performance.now()*0.008 + r.x), r.z);
+    r.bike.position.set(r.x, 0, r.z);
     r.bike.rotation.set(0, r.yaw, 0); r.bike.rotateZ(r.lean);
-    r.bike.userData.ring.rotation.z += dt*8;
+    { const spin = (r.alive && state === 'run' ? speedAt(tRun) : 0)*dt/WHEEL_R; for (const w of r.bike.userData.wheels) w.rotation.x -= spin; }
     if (r.alive && li < MAXL){ const c = new THREE.Color(r.color); floorMat.uniforms.uLP.value[li].set(r.x, 0, r.z); floorMat.uniforms.uLC.value[li].set(c.r, c.g, c.b); li++; }
     // dissolving walls of crashed riders
     for (let i=r.derez.length-1;i>=0;i--){

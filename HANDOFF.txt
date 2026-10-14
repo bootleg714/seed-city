@@ -708,6 +708,12 @@ third (desktop only: new player car, banked turning, online Dogfight).
    ring of radius 520, repeated 8 times, plus 12 dark towers with neon
    edges at 335-420. Title only (DC v0.11): circuit-board streets outside
    the arena with lights running along them; the outer grid dims to 22%.
+ - Bike model (2026-10-13): an original neon sport bike with a crouched
+   rider replaced the hover-bike (makeBike). Spoked wheels with glowing
+   rims spin with speed (WHEEL_R 0.42, rear tyre ends 1.42 behind centre,
+   where the trail taper starts); no hover bob. The owner showed a Flow
+   image of the Tron: Legacy cycle as inspiration; its hubless shell
+   design is Disney's and was deliberately not copied.
  - Not ported: DC title logo (it says "DC"), the 8-view sprite bikes, the
    hardware-only fixes (tile lists, font texture, wall flicker).
 
