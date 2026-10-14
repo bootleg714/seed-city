@@ -370,6 +370,9 @@ function makeBike(color){
     }
     wheels.push(w);
   }
+  // Set the fairing onto the tyre shoulders instead of floating above them.
+  // Move the rider and bars together; wheel radius, centres and floor pad stay put.
+  const BODY_DROP=0.12,bodyGroup=new THREE.Group();bodyGroup.position.y=-BODY_DROP;g.add(bodyGroup);
   // Central fairing with a short nose and tail. The wheels remain exposed:
   // no wheel-hugging arches or downward lips outside the wheel centres.
   const profile=new THREE.Shape();profile.moveTo(-1.09,0.98);
@@ -391,37 +394,37 @@ function makeBike(color){
   for(let i=0;i<pos.count;i++){const key=normalKey(i),n=sums.get(key)||new THREE.Vector3();n.x+=norm.getX(i);n.y+=norm.getY(i);n.z+=norm.getZ(i);sums.set(key,n);}
   const keys=Array.from({length:pos.count},(_,i)=>normalKey(i));
   for(let i=0;i<pos.count;i++){const n=sums.get(keys[i]).clone().normalize();norm.setXYZ(i,n.x,n.y,n.z);}
-  put(g,shell,shellMat);
+  put(bodyGroup,shell,shellMat);
   // Rounded spine blends the flat side skin into the top; saddle stays low
   // and disappears into the cowl instead of becoming a separate raised seat.
-  oval(g,[0,0.995,-0.10],[0.23,0.072,0.46],shellMat);
-  oval(g,[0,1.045,0.68],[0.225,0.064,0.43],shellMat);
-  oval(g,[0,1.035,0.35],[0.16,0.022,0.25],rubberMat);
+  oval(bodyGroup,[0,0.995,-0.10],[0.23,0.072,0.46],shellMat);
+  oval(bodyGroup,[0,1.045,0.68],[0.225,0.064,0.43],shellMat);
+  oval(bodyGroup,[0,1.035,0.35],[0.16,0.022,0.25],rubberMat);
   for(const s of [-1,1]){
     const x=s*0.24;
     // Wheel light follows the tyre, not a disconnected arch above its cover.
     // Broad forward hook: its vertical return meets the low belly at the nose.
-    pipe(g,[[x,0.27,-0.55],[x,0.49,-0.56],[x,0.72,-0.48],[x,0.83,-0.24],[x,0.88,0.03]],0.019);
+    pipe(bodyGroup,[[x,0.27,-0.55],[x,0.49,-0.56],[x,0.72,-0.48],[x,0.83,-0.24],[x,0.88,0.03]],0.019);
     // Rear swoosh rises along the flank, then wraps forward over the cowl.
-    pipe(g,[[x,0.91,0.13],[x,0.93,0.33],[x,0.99,0.58],[x,1.015,0.45],[x,1.00,0.16],[x,0.99,-0.08]],0.024);
-    pipe(g,[[s*0.20,1.06,-0.65],[s*0.19,1.075,-0.82],[s*0.12,1.035,-0.98]],0.008,dim);
-    pipe(g,[[x,0.255,-0.46],[x,0.275,0.08],[x,0.27,0.36]],0.007,dim);
+    pipe(bodyGroup,[[x,0.91,0.13],[x,0.93,0.33],[x,0.99,0.58],[x,1.015,0.45],[x,1.00,0.16],[x,0.99,-0.08]],0.024);
+    pipe(bodyGroup,[[s*0.20,1.06,-0.65],[s*0.19,1.075,-0.82],[s*0.12,1.035,-0.98]],0.008,dim);
+    pipe(bodyGroup,[[x,0.255,-0.46],[x,0.275,0.08],[x,0.27,0.36]],0.007,dim);
     // Broad recessed panel and branched luminous circuitry, like the reference.
-    oval(g,[s*0.234,0.62,-0.02],[0.014,0.115,0.245],rubberMat);
+    oval(bodyGroup,[s*0.234,0.62,-0.02],[0.014,0.115,0.245],rubberMat);
     const P=[];
     for(let i=0;i<4;i++){
       const y=0.555+i*0.044, z=-0.20+i*0.014;
       P.push(s*0.251,y,z,s*0.251,y,z+0.12,s*0.251,y,z+0.12,s*0.251,y+0.022,z+0.155,s*0.251,y+0.022,z+0.155,s*0.251,y+0.022,z+0.28);
     }
-    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));g.add(new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:c})));
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));bodyGroup.add(new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:c})));
   }
   // Low bars and a compact visor-shaped headlight.
-  bone(g,[-0.27,1.04,-0.63],[0.27,1.04,-0.63],0.022,0.022,rubberMat);
-  oval(g,[0,0.967,-1.095],[0.10,0.013,0.025],glow);
-  oval(g,[0,0.988,1.115],[0.16,0.018,0.027],glow);
-  pipe(g,[[0,0.88,1.10],[0,0.96,1.15],[0,1.028,1.115]],0.012);
+  bone(bodyGroup,[-0.27,1.04,-0.63],[0.27,1.04,-0.63],0.022,0.022,rubberMat);
+  oval(bodyGroup,[0,0.967,-1.095],[0.10,0.013,0.025],glow);
+  oval(bodyGroup,[0,0.988,1.115],[0.16,0.018,0.027],glow);
+  pipe(bodyGroup,[[0,0.88,1.10],[0,0.96,1.15],[0,1.028,1.115]],0.012);
   // Smooth armoured rider, leaning forward with bent arms and folded legs.
-  const R=new THREE.Group();g.add(R);
+  const R=new THREE.Group();R.position.y=-BODY_DROP;g.add(R);
   const torso=oval(R,[0,1.18,0.06],[0.20,0.16,0.43],riderMat);torso.rotation.x=0.27;
   oval(R,[0,1.06,0.40],[0.17,0.11,0.19],riderMat);
   bone(R,[0,1.29,-0.23],[0,1.34,-0.35],0.063,0.06);
