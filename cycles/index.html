@@ -345,38 +345,47 @@ function makeBike(color){
   const wheels=[];
   for(const z of [-1,1]){
     const w=new THREE.Group(); w.position.set(0,WHEEL_R,z); g.add(w);
-    const tyre=put(w,new THREE.TorusGeometry(0.35,0.07,16,64).rotateY(Math.PI/2),rubberMat); tyre.scale.x=2.35;
+    // Lathed ring profile gives a broad, nearly cylindrical tread with
+    // rounded shoulders. The centre is genuinely open, not a painted disc.
+    const halfWidth=z>0?0.31:0.27;
+    const section=[[0.274,-halfWidth+0.014],[0.327,-halfWidth],[0.393,-halfWidth+0.025],
+      [0.417,-halfWidth+0.070],[WHEEL_R,-halfWidth+0.095],[WHEEL_R,halfWidth-0.095],
+      [0.417,halfWidth-0.070],[0.393,halfWidth-0.025],[0.327,halfWidth],
+      [0.274,halfWidth-0.014],[0.262,halfWidth-0.038],[0.262,-halfWidth+0.038],[0.274,-halfWidth+0.014]];
+    put(w,new THREE.LatheGeometry(section.map(p=>new THREE.Vector2(...p)),64).rotateZ(Math.PI/2),rubberMat);
     for(const s of [-1,1]){
-      put(w,new THREE.TorusGeometry(0.328,0.022,10,64).rotateY(Math.PI/2),glow,s*0.151);
-      put(w,new THREE.TorusGeometry(0.328,0.048,10,64).rotateY(Math.PI/2),halo,s*0.154);
-      put(w,new THREE.TorusGeometry(0.279,0.018,8,48).rotateY(Math.PI/2),darkMat,s*0.117);
+      put(w,new THREE.TorusGeometry(0.328,0.022,10,64).rotateY(Math.PI/2),glow,s*(halfWidth+0.006));
+      put(w,new THREE.TorusGeometry(0.328,0.044,10,64).rotateY(Math.PI/2),halo,s*(halfWidth+0.010));
+      put(w,new THREE.TorusGeometry(0.273,0.013,8,48).rotateY(Math.PI/2),darkMat,s*(halfWidth-0.009));
+      // These shoulder bands read as tall outer strips head-on and from rear.
+      put(w,new THREE.TorusGeometry(0.421,0.009,8,64).rotateY(Math.PI/2),glow,s*(halfWidth-0.085));
     }
-    // A few inset tread bars are dark details, rather than glowing spokes.
-    for(let k=0;k<12;k++){
-      const a=k*Math.PI*2/12, tread=put(w,new THREE.BoxGeometry(0.22,0.012,0.035),darkMat,0,Math.cos(a)*0.413,Math.sin(a)*0.413); tread.rotation.x=a;
+    if(z>0){
+      // Circumferential centre belt becomes the reference's vertical rear line.
+      put(w,new THREE.TorusGeometry(0.423,0.009,8,64).rotateY(Math.PI/2),glow);
+      put(w,new THREE.TorusGeometry(0.423,0.018,8,64).rotateY(Math.PI/2),halo);
+    }
+    for(let k=0;k<18;k++){
+      const a=k*Math.PI*2/18, tread=put(w,new THREE.BoxGeometry((halfWidth-0.10)*2,0.008,0.025),rubberMat,0,Math.cos(a)*0.422,Math.sin(a)*0.422);tread.rotation.x=a;
     }
     wheels.push(w);
   }
-  // One flowing monocoque: the top joins the wheel shoulders and rear cowl;
-  // two open underside arches expose the hubless wheels without separate fins.
-  const profile=new THREE.Shape();profile.moveTo(-1.49,0.42);
-  profile.bezierCurveTo(-1.47,0.76,-1.23,1.025,-1.00,1.035);
-  profile.bezierCurveTo(-0.80,1.035,-0.67,1.13,-0.46,1.02);
+  // Central fairing with a short nose and tail. The wheels remain exposed:
+  // no wheel-hugging arches or downward lips outside the wheel centres.
+  const profile=new THREE.Shape();profile.moveTo(-1.09,0.98);
+  profile.bezierCurveTo(-0.91,1.09,-0.69,1.10,-0.46,1.02);
   profile.bezierCurveTo(-0.17,0.96,0.05,1.00,0.34,1.045);
-  profile.bezierCurveTo(0.66,1.10,1.06,1.075,1.22,0.98);
-  profile.bezierCurveTo(1.44,0.84,1.49,0.59,1.49,0.42);
-  profile.lineTo(1.45,0.42);
-  profile.bezierCurveTo(1.45,0.669,1.249,0.87,1.00,0.87);
-  profile.bezierCurveTo(0.751,0.87,0.55,0.669,0.55,0.42);
-  profile.bezierCurveTo(0.54,0.33,0.50,0.23,0.39,0.23);
-  profile.bezierCurveTo(0.10,0.28,-0.21,0.21,-0.51,0.23);
-  profile.bezierCurveTo(-0.57,0.25,-0.57,0.35,-0.55,0.42);
-  profile.bezierCurveTo(-0.55,0.669,-0.751,0.87,-1.00,0.87);
-  profile.bezierCurveTo(-1.249,0.87,-1.45,0.669,-1.45,0.42);
+  profile.bezierCurveTo(0.64,1.085,0.98,1.085,1.14,1.00);
+  profile.lineTo(1.10,0.94);
+  profile.bezierCurveTo(0.93,0.95,0.70,0.91,0.64,0.78);
+  profile.bezierCurveTo(0.58,0.62,0.57,0.40,0.49,0.26);
+  profile.bezierCurveTo(0.18,0.27,-0.22,0.21,-0.54,0.26);
+  profile.bezierCurveTo(-0.63,0.36,-0.60,0.57,-0.67,0.72);
+  profile.bezierCurveTo(-0.75,0.87,-0.98,0.91,-1.09,0.92);
   profile.closePath();
   const shell=new THREE.ExtrudeGeometry(profile,{depth:0.36,steps:1,curveSegments:24,bevelEnabled:true,bevelSegments:5,bevelSize:0.025,bevelThickness:0.05});
   shell.translate(0,0,-0.18);shell.rotateY(-Math.PI/2);
-  // Smooth adjoining bevel/arch triangles, keeping the large side caps flat.
+  // Smooth adjoining bevel triangles, keeping the large side caps flat.
   const pos=shell.attributes.position, norm=shell.attributes.normal, sums=new Map();
   const normalKey=i=>[pos.getX(i),pos.getY(i),pos.getZ(i)].map(v=>Math.round(v*100000)).join(',')+(Math.abs(norm.getX(i))>.999?'cap':'skin');
   for(let i=0;i<pos.count;i++){const key=normalKey(i),n=sums.get(key)||new THREE.Vector3();n.x+=norm.getX(i);n.y+=norm.getY(i);n.z+=norm.getZ(i);sums.set(key,n);}
@@ -386,7 +395,7 @@ function makeBike(color){
   // Rounded spine blends the flat side skin into the top; saddle stays low
   // and disappears into the cowl instead of becoming a separate raised seat.
   oval(g,[0,0.995,-0.10],[0.23,0.072,0.46],shellMat);
-  oval(g,[0,1.045,0.73],[0.225,0.064,0.50],shellMat);
+  oval(g,[0,1.045,0.68],[0.225,0.064,0.43],shellMat);
   oval(g,[0,1.035,0.35],[0.16,0.022,0.25],rubberMat);
   for(const s of [-1,1]){
     const x=s*0.24;
@@ -395,7 +404,7 @@ function makeBike(color){
     pipe(g,[[x,0.27,-0.55],[x,0.49,-0.56],[x,0.72,-0.48],[x,0.83,-0.24],[x,0.88,0.03]],0.019);
     // Rear swoosh rises along the flank, then wraps forward over the cowl.
     pipe(g,[[x,0.91,0.13],[x,0.93,0.33],[x,0.99,0.58],[x,1.015,0.45],[x,1.00,0.16],[x,0.99,-0.08]],0.024);
-    pipe(g,[[s*0.20,1.06,-0.65],[s*0.19,1.075,-0.85],[s*0.12,1.052,-1.09]],0.008,dim);
+    pipe(g,[[s*0.20,1.06,-0.65],[s*0.19,1.075,-0.82],[s*0.12,1.035,-0.98]],0.008,dim);
     pipe(g,[[x,0.255,-0.46],[x,0.275,0.08],[x,0.27,0.36]],0.007,dim);
     // Broad recessed panel and branched luminous circuitry, like the reference.
     oval(g,[s*0.234,0.62,-0.02],[0.014,0.115,0.245],rubberMat);
@@ -408,8 +417,9 @@ function makeBike(color){
   }
   // Low bars and a compact visor-shaped headlight.
   bone(g,[-0.27,1.04,-0.63],[0.27,1.04,-0.63],0.022,0.022,rubberMat);
-  oval(g,[0,1.015,-1.10],[0.10,0.013,0.025],glow);
-  oval(g,[0,0.94,1.27],[0.16,0.022,0.045],glow);
+  oval(g,[0,0.967,-1.095],[0.10,0.013,0.025],glow);
+  oval(g,[0,0.988,1.115],[0.16,0.018,0.027],glow);
+  pipe(g,[[0,0.88,1.10],[0,0.96,1.15],[0,1.028,1.115]],0.012);
   // Smooth armoured rider, leaning forward with bent arms and folded legs.
   const R=new THREE.Group();g.add(R);
   const torso=oval(R,[0,1.18,0.06],[0.20,0.16,0.43],riderMat);torso.rotation.x=0.27;
