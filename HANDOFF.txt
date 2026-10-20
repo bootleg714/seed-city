@@ -714,6 +714,18 @@ third (desktop only: new player car, banked turning, online Dogfight).
    where the trail taper starts); no hover bob. The owner showed a Flow
    image of the Tron: Legacy cycle as inspiration; its hubless shell
    design is Disney's and was deliberately not copied.
+ - Bot difficulty (2026-10-19, asked for by the owner's family): DIFFS
+   EASY / NORMAL / HARD, menu picker under the bot count (also on the
+   results page and in the online lobby for the host; joiners see it).
+   Saved in localStorage 'neoncycles-diff', default NORMAL. The authority
+   sends diff in the round message (roundDiff; HUD shows "EASY BOTS").
+   EASY: no planning, 0.15 s reaction, 75% look-ahead, dodges the wrong
+   way 15% of the time, random wandering. NORMAL: the planner with 0.05 s
+   reaction, 90% look-ahead, 45% hunting, more randomness, 3% mistakes.
+   HARD: the full DC bot (what every match used before). Fast-forwarded
+   bot-only runs (open grid, 3 bots): average round incl. ~6 s of
+   countdown/results EASY 33 s (10 rounds), NORMAL 50 s, HARD 68 s.
+   Bike speed is the same at every level.
  - Not ported: DC title logo (it says "DC"), the 8-view sprite bikes, the
    hardware-only fixes (tile lists, font texture, wall flicker).
 

@@ -121,6 +121,15 @@ let arenaSel = -1;            // -1 rotates each round; 0..3 keeps one arena all
 let arenaId = 0;              // the arena of the current round (sent by the authority)
 const arenaSelName = () => arenaSel < 0 ? 'ROTATING ARENAS' : ARENAS[arenaSel].name;
 try{ const v = +localStorage.getItem('neoncycles-arena'); if (v >= -1 && v < ARENAS.length) arenaSel = v; }catch(_){}
+// bot difficulty: how fast bots react, how far ahead they look, whether they plan, hunt and blunder.
+// HARD is the full Dreamcast bot (v0.15). Only the authority (solo player or online host) runs bots.
+const DIFFS = [
+  {name: 'EASY',   color: 0x8dff4a, react: 0.15, think: [1.2, 2.8],   look: 0.75, plan: false, attack: 0,    noise: 0,   blunder: 0.15},
+  {name: 'NORMAL', color: 0x33d9ff, react: 0.05, think: [0.26, 0.34], look: 0.9,  plan: true,  attack: 0.45, noise: 5,   blunder: 0.03},
+  {name: 'HARD',   color: 0xff4b3e, react: 0,    think: [0.16, 0.21], look: 1,    plan: true,  attack: 1,    noise: 1.5, blunder: 0}
+];
+let diffSel = 1, hostDiff = 1, roundDiff = 1;     // the menu choice; the host's choice (lobby); the current match's
+try{ const v = localStorage.getItem('neoncycles-diff'); if (v !== null && +v >= 0 && +v < DIFFS.length) diffSel = +v; }catch(_){}
 // distance travelled since the round began: speed ramps linearly, then holds
 const S = t => t <= RAMP_T ? BASE_SPEED*(t + 0.5*RAMP*t*t) : BASE_SPEED*(RAMP_T + 0.5*RAMP*RAMP_T*RAMP_T + (1 + RAMP_MAX)*(t - RAMP_T));
 const speedAt = t => BASE_SPEED*(1 + Math.min(RAMP_MAX, RAMP*t));
@@ -691,11 +700,11 @@ function spawns(ids){
 function apply(m){
   switch (m.t){
     case 'roster':
-      roster = m.roster; scores = m.scores || scores; if (typeof m.arena === 'number') hostArena = m.arena; previewArena(); syncRiders(); drawBoard(); if (mode === 'online' && state === 'lobby') showPage('lobby');
+      roster = m.roster; scores = m.scores || scores; if (typeof m.arena === 'number') hostArena = m.arena; if (typeof m.diff === 'number') hostDiff = m.diff; previewArena(); syncRiders(); drawBoard(); if (mode === 'online' && state === 'lobby') showPage('lobby');
       return;
     case 'round': {
       round = m.n; scores = m.scores || scores; state = 'countdown'; cd = 3; lastBeep = 4; tRun = 0; endT = -1;
-      setArena(m.arena | 0); gridClear(); watchId = null; deadAt = -1; specTop = true;
+      setArena(m.arena | 0); roundDiff = typeof m.diff === 'number' ? m.diff : 1; gridClear(); watchId = null; deadAt = -1; specTop = true;
       for (const r of riders.values()){ clearRider(r); r.inRound = false; r.alive = false; }
       for (const [id, x, z, d] of m.spawns){
         const r = riders.get(id); if (!r) continue;
@@ -756,7 +765,7 @@ function apply(m){
   }
 }
 // the authority changes state through emit(), which applies locally and tells everyone else
-function emit(m){ if (m.t === 'roster') m.arena = arenaSel; apply(m); if (mode === 'online') netSend(m); }
+function emit(m){ if (m.t === 'roster'){ m.arena = arenaSel; m.diff = diffSel; } apply(m); if (mode === 'online') netSend(m); }
 
 /* ---------- authority: rounds, scores, bots ---------- */
 function authStartMatch(){
@@ -766,7 +775,7 @@ function authStartMatch(){
 function authNextRound(){
   const ids = roster.map(q => q.id);
   if (ids.length < 2) return;
-  emit({t:'round', n: round + 1, arena: arenaSel >= 0 ? arenaSel : round % ARENAS.length, spawns: spawns(shuffle(ids)), scores});
+  emit({t:'round', n: round + 1, diff: diffSel, arena: arenaSel >= 0 ? arenaSel : round % ARENAS.length, spawns: spawns(shuffle(ids)), scores});
 }
 function shuffle(a){ a = a.slice(); for (let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function authTick(dt){
@@ -877,13 +886,24 @@ function planAttack(r, dir, clear){
 // personality by colour: [cyan, amber, magenta, lime, violet, red]
 const BOT_ATTACK = [0.8, 1.2, 1.0, 0.35, 0.7, 0.9];
 function botThink(r, dt){
-  const ci = (roster.find(q => q.id === r.id) || {c: 4}).c % COLORS.length;
-  const speed = speedAt(tRun), danger = 5 + speed*0.32;
-  let front = freeDist(r, r.dir, danger + 2);
-  r.ai.t += dt;
+  const D = DIFFS[roundDiff], ci = (roster.find(q => q.id === r.id) || {c: 4}).c % COLORS.length;
+  r.ai.t += dt; r.ai.rt = (r.ai.rt || 0) + dt;
   if (tRun - r.lastTurn < TURN_GAP) return;
+  if (r.ai.rt < D.react) return;                 // reaction time: easier bots notice walls later
+  r.ai.rt = 0;
+  const speed = speedAt(tRun), danger = (5 + speed*0.32)*D.look;
+  let front = freeDist(r, r.dir, danger + 2);
   if (front > danger && r.ai.t < r.ai.next) return;
-  r.ai.t = 0; r.ai.next = 0.16 + 0.025*ci + Math.random()*0.05;
+  r.ai.t = 0; r.ai.next = D.think[0] + (D.plan ? 0.025*ci : 0) + Math.random()*(D.think[1] - D.think[0]);
+  if (!D.plan){
+    // EASY: no planning. Dodge toward the side with more room (sometimes the wrong way), and now and then wander.
+    const L = freeDist(r, (r.dir + 3) % 4, 60), R = freeDist(r, (r.dir + 1) % 4, 60);
+    let turn = 0;
+    if (front < danger){ turn = L > R ? -1 : R > L ? 1 : (Math.random() < 0.5 ? -1 : 1); if (Math.random() < D.blunder) turn = -turn; }
+    else if (Math.max(L, R) > 18 && Math.random() < 0.5) turn = L > R ? -1 : 1;
+    if (turn) ownTurn(r, turn);
+    return;
+  }
   front = freeDist(r, r.dir, 48); planMap();
   let best = -1e9, choice = 0;
   for (let option = -1; option <= 1; option++){
@@ -900,12 +920,13 @@ function botThink(r, dt){
     let score = clear*0.7 + Math.sqrt(space)*1.5 + escape*0.8;
     if (clear < danger) score -= 100 + (danger - clear)*8;
     if (space < 25) score -= 45;
-    score += planAttack(r, dir, clear)*BOT_ATTACK[ci];
+    score += planAttack(r, dir, clear)*BOT_ATTACK[ci]*D.attack;
     if (ci === 3) score += Math.sqrt(space)*0.4;
     if (option === 0) score += 7;
-    score += Math.random()*1.5;
+    score += Math.random()*D.noise;
     if (score > best){ best = score; choice = option; }
   }
+  if (Math.random() < D.blunder) choice = Math.floor(Math.random()*3) - 1;   // NORMAL: an occasional mistake
   if (choice) ownTurn(r, choice);
 }
 
@@ -1030,7 +1051,7 @@ function drawBoard(){
   });
   $('#board').innerHTML = rows.join('');
   const A = ARENAS[arenaId]; $('#arena').textContent = A.name; $('#arena').style.color = '#' + A.color.toString(16).padStart(6, '0');
-  $('#round').textContent = 'ROUND ' + round + '  ·  FIRST TO ' + WIN_ROUNDS + (mode === 'online' && net ? '  ·  ROOM ' + net.code : '');
+  $('#round').textContent = 'ROUND ' + round + '  ·  FIRST TO ' + WIN_ROUNDS + (roster.some(q => q.bot) ? '  ·  ' + DIFFS[roundDiff].name + ' BOTS' : '') + (mode === 'online' && net ? '  ·  ROOM ' + net.code : '');
 }
 function updateHint(){
   const pad = gpOn;
@@ -1061,13 +1082,18 @@ function showPage(p){
     return can ? '<div class="pick">' + btn('arenaprev', '◀', '', 'small') + '<div class="name" style="color:' + c + '">' + arenaSelName() + '</div>' + btn('arenanext', '▶', '', 'small') + '</div>'
                : '<div class="pick"><span></span><div class="name">' + (hostArena < 0 ? 'ROTATING ARENAS' : ARENAS[hostArena].name) + '</div><span></span></div>';
   };
+  const diffPick = can => {
+    const d = DIFFS[can ? diffSel : hostDiff], c = '#' + d.color.toString(16).padStart(6, '0');
+    return can ? '<div class="pick">' + btn('diffprev', '◀', '', 'small') + '<div class="name" style="color:' + c + '">' + d.name + ' BOTS</div>' + btn('diffnext', '▶', '', 'small') + '</div>'
+               : '<div class="pick"><span></span><div class="name" style="color:' + c + '">' + d.name + ' BOTS</div><span></span></div>';
+  };
   const rosterHtml = () => '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:#' + COLORS[q.c % COLORS.length][1].toString(16).padStart(6,'0') + '"></span>' + nameOf(q.id).toUpperCase() + (q.bot ? ' <span class="tag">BOT</span>' : '') + (q.id === 'p0' && mode === 'online' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>';
   if (p === 'main'){
     h = '<p class="kicker">SEED CITY ARCADE</p><h1 class="title">NEON CYCLES</h1>'
       + '<p class="sub">Your bike leaves a wall of light. Turn left or right, never into a wall. Last rider riding takes the round; first to ' + WIN_ROUNDS + ' wins.</p>'
       + btn('solo', 'Ride solo', 'Against ' + soloBots + (soloBots === 1 ? ' bot' : ' bots'))
       + '<div class="row">' + btn('botsless', '− Bot', '', 'small') + btn('botsmore', '+ Bot', '', 'small') + '</div>'
-      + arenaPick(true)
+      + diffPick(true) + arenaPick(true)
       + btn('host', 'Host online', 'Get a room code for friends')
       + '<input id="code" class="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code" value="' + lastCode + '">'
       + btn('join', 'Join online', 'Type the code above, then join')
@@ -1076,7 +1102,7 @@ function showPage(p){
   } else if (p === 'results'){
     h = '<p class="kicker">MATCH OVER</p><h1 class="title">' + banner + '</h1>' + rosterHtml()
       + '<p class="sub">' + roster.map(q => nameOf(q.id) + ' ' + (scores[q.id] || 0)).join(' · ') + '</p>'
-      + btn('again', 'Ride again', 'Same bots, new match') + btn('menu', 'Main menu', '', 'small');
+      + diffPick(true) + btn('again', 'Ride again', 'Same bots, new match') + btn('menu', 'Main menu', '', 'small');
   } else if (p === 'wait'){
     h = '<p class="kicker">NEON CYCLES</p><h1 class="title">ONLINE</h1><p class="sub">' + netStatus + '</p>' + btn('cancel', 'Cancel', '', 'small');
   } else if (p === 'err'){
@@ -1085,7 +1111,7 @@ function showPage(p){
     const host = net && net.role === 'host', humans = roster.filter(q => !q.bot).length;
     h = '<p class="kicker">' + (banner ? banner : 'ROOM OPEN') + '</p><div class="big">' + (net ? net.code : '') + '</div>'
       + '<p class="sub">' + (host ? 'Share the code: friends pick Join online and type it in. Add bots to fill the grid, then start when everyone is in.' : 'You’re in. The host starts the match.') + '</p>'
-      + rosterHtml() + arenaPick(host)
+      + rosterHtml() + (host || roster.some(q => q.bot) ? diffPick(host) : '') + arenaPick(host)
       + (host ? '<div class="row">' + btn('rbotless', '− Bot', '', 'small' + (roster.some(q => q.bot) ? '' : ' off')) + btn('rbotmore', '+ Bot', '', 'small' + (roster.length < MAX_RIDERS ? '' : ' off')) + '</div>'
               + btn('start', 'Start match', roster.length < 2 ? 'Needs at least 2 riders (add a bot to practise)' : roster.length + ' riders · first to ' + WIN_ROUNDS, roster.length < 2 ? 'off' : '')
               + btn('copy', copied ? 'Link copied' : 'Copy invite link', copied ? 'Paste it to a friend' : 'Opens Neon Cycles straight into this room', 'small')
@@ -1108,9 +1134,12 @@ function menuAction(id){
   else if (id === 'arenaprev' || id === 'arenanext'){
     arenaSel = (arenaSel + 1 + (id === 'arenaprev' ? -1 : 1) + ARENAS.length + 1) % (ARENAS.length + 1) - 1;
     try{ localStorage.setItem('neoncycles-arena', String(arenaSel)); }catch(_){}
-    previewArena(); const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
-    if (page === 'lobby' && isAuth()) emit({t:'roster', roster, scores}); else showPage(page);
-    if (keep){ const b = document.querySelector('#card .btn[data-id="' + keep + '"]'); if (b){ document.querySelectorAll('#card .btn').forEach(x => x.classList.remove('gp')); if (gpOn) b.classList.add('gp'); b.focus({preventScroll:true}); } }
+    previewArena(); repaintKeepFocus();
+  }
+  else if (id === 'diffprev' || id === 'diffnext'){
+    diffSel = (diffSel + (id === 'diffprev' ? -1 : 1) + DIFFS.length) % DIFFS.length;
+    try{ localStorage.setItem('neoncycles-diff', String(diffSel)); }catch(_){}
+    repaintKeepFocus();
   }
   else if (id === 'join'){ const c = $('#code'); netJoin(c ? c.value : lastCode); }
   else if (id === 'cancel' || id === 'leave' || id === 'menu') toMenu();
@@ -1120,6 +1149,12 @@ function menuAction(id){
   else if (id === 'copy'){ const link = location.href.split('#')[0] + '#room=' + net.code;
     const done = () => { copied = true; showPage('lobby'); };
     try{ navigator.clipboard.writeText(link).then(done, () => prompt('Copy this invite link:', link)); }catch(_){ prompt('Copy this invite link:', link); } }
+}
+// redraw the menu after a picker change, keeping the highlighted button (controller and keyboard users)
+function repaintKeepFocus(){
+  const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+  if (page === 'lobby' && isAuth()) emit({t:'roster', roster, scores}); else showPage(page);
+  if (keep){ const b = document.querySelector('#card .btn[data-id="' + keep + '"]'); if (b){ document.querySelectorAll('#card .btn').forEach(x => x.classList.remove('gp')); if (gpOn) b.classList.add('gp'); b.focus({preventScroll:true}); } }
 }
 function freeColor(){ for (let c=0;c<COLORS.length;c++) if (!roster.some(q => q.c === c)) return c; return roster.length % COLORS.length; }
 function addBot(){ let n = 1; while (roster.some(q => q.id === 'b' + n)) n++; roster.push({id: 'b' + n, c: freeColor(), bot: true}); }
@@ -1232,7 +1267,7 @@ function netRecv(d, conn){
       const id = 'p' + (net.nextId++);
       net.conns.set(conn, {id, last: now});
       roster.push({id, c: freeColor(), bot: false}); scores[id] = scores[id] || 0;
-      conn.send({t:'welcome', id, roster, scores, state, round, arena: arenaId, sel: arenaSel});
+      conn.send({t:'welcome', id, roster, scores, state, round, arena: arenaId, sel: arenaSel, diff: diffSel});
       emit({t:'roster', roster, scores});
       return;
     }
@@ -1248,6 +1283,7 @@ function netRecv(d, conn){
     if (d.t === 'welcome'){
       net.joined = true; mode = 'online'; myId = d.id; roster = d.roster; scores = d.scores || {}; round = d.round || 0;
       if (typeof d.sel === 'number') hostArena = d.sel;
+      if (typeof d.diff === 'number') hostDiff = roundDiff = d.diff;
       if (d.state !== 'lobby' && d.state !== 'idle') setArena(d.arena | 0);
       state = d.state === 'lobby' || d.state === 'idle' ? 'lobby' : 'spectate';
       syncRiders();
