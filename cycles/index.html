@@ -53,6 +53,14 @@ a.back:hover{color:var(--fg)}
 #hint kbd{font:600 11px/1 var(--f-data);border:1px solid var(--line);border-radius:4px;padding:2px 5px;color:var(--fg)}
 #touch{position:fixed;inset:auto 0 0 0;display:flex;justify-content:space-between;padding:0 14px calc(env(safe-area-inset-bottom,0px) + 14px);pointer-events:none}
 #touch button{all:unset;pointer-events:auto;width:30vw;max-width:150px;height:96px;border-radius:18px;border:1px solid var(--line);background:rgba(6,10,20,.5);display:grid;place-items:center;font:700 30px/1 var(--f-data);color:var(--fg);touch-action:none}
+#touch #tboost{width:24vw;max-width:120px;font-size:14px;letter-spacing:.16em;position:relative;overflow:hidden;--f:1}
+#touch #tboost::before{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(255,180,94,.35),rgba(255,180,94,.12));transform:scaleY(var(--f));transform-origin:bottom;transition:transform .1s linear}
+#touch #tboost span{position:relative}
+#touch #tboost.ready{border-color:var(--amber);box-shadow:0 0 18px rgba(255,180,94,.45);color:#fff}
+#touch #tboost.ready::before{background:rgba(255,180,94,.28)}
+#boostbar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 40px);transform:translateX(-50%);width:160px;height:6px;border-radius:3px;background:rgba(255,255,255,.08);border:1px solid var(--line);overflow:hidden}
+#boostbar i{display:block;height:100%;width:100%;background:var(--amber);transform-origin:left;box-shadow:0 0 10px var(--amber)}
+#boostbar.ready{border-color:var(--amber)}
 #touch #tview{width:22vw;max-width:110px;font-size:15px;letter-spacing:.14em;align-self:end;height:64px}
 #arena{position:fixed;top:calc(env(safe-area-inset-top,0px) + 50px);left:50%;transform:translateX(-50%);font:700 11px/1 var(--f-data);letter-spacing:.24em;white-space:nowrap;text-shadow:0 0 10px currentColor}
 #watch{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 44px);transform:translateX(-50%);text-align:center;white-space:nowrap}
@@ -62,7 +70,7 @@ a.back:hover{color:var(--fg)}
 .pick .name{font:700 13px/1.2 var(--f-data);letter-spacing:.16em;text-align:center;text-shadow:0 0 10px currentColor}
 #touch button.on{background:rgba(51,217,255,.22);border-color:var(--cyan)}
 @media (pointer:coarse){ #watch{bottom:calc(env(safe-area-inset-bottom,0px) + 128px)} }
-@media (max-width:640px){ .title{font-size:26px} #msg{font-size:30px} #board{left:10px;padding:8px 10px} #hint{display:none} }
+@media (max-width:640px){ #round{left:auto;right:10px;transform:none;white-space:normal;max-width:calc(100vw - 205px);text-align:right;font-size:10px;line-height:1.5;padding:6px 10px;border-radius:12px} #arena{left:auto;right:14px;transform:none;top:calc(env(safe-area-inset-top,0px) + 92px);font-size:10px} .title{font-size:26px} #msg{font-size:30px} #board{left:10px;padding:8px 10px} #hint{display:none} }
 @media (prefers-reduced-motion: reduce){ .title,#msg{text-shadow:none} }
 </style>
 </head>
@@ -74,9 +82,10 @@ a.back:hover{color:var(--fg)}
   <div id="msg"></div>
   <div id="arena"></div>
   <div id="watch" hidden></div>
+  <div id="boostbar" hidden><i></i></div>
 </div>
 <div id="hint"></div>
-<div id="touch" hidden><button data-t="-1" aria-label="Turn left">◀</button><button id="tview" data-v="1" aria-label="Switch spectator view" hidden>VIEW</button><button data-t="1" aria-label="Turn right">▶</button></div>
+<div id="touch" hidden><button data-t="-1" aria-label="Turn left">◀</button><button id="tboost" data-b="1" aria-label="Boost"><span>BOOST</span></button><button id="tview" data-v="1" aria-label="Switch spectator view" hidden>VIEW</button><button data-t="1" aria-label="Turn right">▶</button></div>
 <div id="menu"><div class="card" id="card" role="dialog" aria-label="Neon Cycles menu"></div></div>
 <p id="nogl" hidden style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center">WebGL is not available in this browser, so the arena can't be drawn.</p>
 
@@ -106,6 +115,8 @@ const HALF = 110;                 // arena half size (220 x 220)
 const WALL_H = 1.7, TRAIL_T = 0.16, HIT_R = 0.42;
 const BASE_SPEED = 24, RAMP = 0.025, RAMP_MAX = 0.8, RAMP_T = RAMP_MAX/RAMP;   // +2.5%/s up to +80%
 const TURN_GAP = 0.08, WIN_ROUNDS = 5, MAX_RIDERS = 6;
+// boost: +70% speed for 1 s, then 5 s to recharge (counted from the start of the boost)
+const BOOST_T = 1.0, BOOST_X = 0.7, BOOST_CD = 5;
 const DIRS = [[0,-1],[1,0],[0,1],[-1,0]];           // north (-z), east, south, west; +1 is a right turn
 const COLORS = [['Cyan',0x33d9ff],['Amber',0xffb45e],['Magenta',0xff4fbf],['Lime',0x8dff4a],['Violet',0xa98bff],['Red',0xff4b3e]];
 const IS_TOUCH = window.matchMedia('(pointer: coarse)').matches;
@@ -124,9 +135,9 @@ try{ const v = +localStorage.getItem('neoncycles-arena'); if (v >= -1 && v < ARE
 // bot difficulty: how fast bots react, how far ahead they look, whether they plan, hunt and blunder.
 // HARD is the full Dreamcast bot (v0.15). Only the authority (solo player or online host) runs bots.
 const DIFFS = [
-  {name: 'EASY',   color: 0x8dff4a, react: 0.15, think: [1.2, 2.8],   look: 0.75, plan: false, attack: 0,    noise: 0,   blunder: 0.15},
-  {name: 'NORMAL', color: 0x33d9ff, react: 0.05, think: [0.26, 0.34], look: 0.9,  plan: true,  attack: 0.45, noise: 5,   blunder: 0.03},
-  {name: 'HARD',   color: 0xff4b3e, react: 0,    think: [0.16, 0.21], look: 1,    plan: true,  attack: 1,    noise: 1.5, blunder: 0}
+  {name: 'EASY',   color: 0x8dff4a, react: 0.15, think: [1.2, 2.8],   look: 0.75, plan: false, attack: 0,    noise: 0,   blunder: 0.15, boost: 0},
+  {name: 'NORMAL', color: 0x33d9ff, react: 0.05, think: [0.26, 0.34], look: 0.9,  plan: true,  attack: 0.45, noise: 5,   blunder: 0.03, boost: 0.08},
+  {name: 'HARD',   color: 0xff4b3e, react: 0,    think: [0.16, 0.21], look: 1,    plan: true,  attack: 1,    noise: 1.5, blunder: 0,    boost: 0.2}
 ];
 let diffSel = 1, hostDiff = 1, roundDiff = 1;     // the menu choice; the host's choice (lobby); the current match's
 try{ const v = localStorage.getItem('neoncycles-diff'); if (v !== null && +v >= 0 && +v < DIFFS.length) diffSel = +v; }catch(_){}
@@ -581,6 +592,7 @@ function playBuf(buf, vol, pan, rate){
 }
 const speedNorm = () => Math.max(0, Math.min(1, (speedAt(tRun) - BASE_SPEED)/(BASE_SPEED*RAMP_MAX)));
 const sfxTurn = () => SFX.turn ? playBuf(SFX.turn, 0.35, 0, 0.94 + 0.14*speedNorm()) : tone(520, 0.05, 'square', 0.025, 780);
+const sfxBoost = () => { noise(0.55, 500, 4200, 0.16); tone(180, 0.5, 'sawtooth', 0.035, 620); };
 const sfxBeep = hi => tone(hi ? 1046 : 523, hi ? 0.4 : 0.15, 'square', 0.05);
 // crash volume falls with distance from whoever the camera follows, and pans to the side it happened on
 const sfxCrash = (dist, pan) => {
@@ -609,7 +621,7 @@ function enginesUpdate(){
         e = {s, g, p}; engines.set(r.id, e);
       }
       const t = a.currentTime, ci = (roster.find(q => q.id === r.id) || {c: 2}).c;
-      e.s.playbackRate.value = (0.85 + 0.4*sp)*(1 + (ci - 2)*0.008);
+      e.s.playbackRate.value = (0.85 + 0.4*sp)*(1 + (ci - 2)*0.008)*(boosting(r) ? 1.22 : 1);
       e.g.gain.setTargetAtTime(vol, t, 0.05);
       if (e.p){ e.p.pan.setValueAtTime(e.p.pan.value, t); e.p.pan.linearRampToValueAtTime(me ? 0 : panTo(L, r.x, r.z), t + 0.1); }
     }
@@ -662,7 +674,7 @@ function makeRider(id){
   scene.add(bike);
   const entry = roster.find(q => q.id === id);
   return {id, color, bike, bot: !!(entry && entry.bot), mat: trailMat(color), segs: [], segMesh: [], cur: null,
-          x:0, z:0, dir:0, tsx:0, tsz:0, alive:false, inRound:false, lastTurn:-9, pend:0,
+          x:0, z:0, dir:0, tsx:0, tsz:0, alive:false, inRound:false, lastTurn:-9, pend:0, boostT0:-9, boostT1:-9, boostReady:0,
           bx:0, bz:0, bt:0, yaw:0, lean:0, derez:[], ai:{t:0, next:0}};
 }
 function clearRider(r){
@@ -708,7 +720,7 @@ function apply(m){
       for (const r of riders.values()){ clearRider(r); r.inRound = false; r.alive = false; }
       for (const [id, x, z, d] of m.spawns){
         const r = riders.get(id); if (!r) continue;
-        Object.assign(r, {x, z, dir: d, tsx: x, tsz: z, bx: x, bz: z, bt: 0, alive: true, inRound: true, lastTurn: -9, pend: 0, yaw: -d*Math.PI/2, lean: 0});
+        Object.assign(r, {x, z, dir: d, tsx: x, tsz: z, bx: x, bz: z, bt: 0, alive: true, inRound: true, lastTurn: -9, pend: 0, boostT0: -9, boostT1: -9, boostReady: 0, yaw: -d*Math.PI/2, lean: 0});
         r.ai = {t: 0, next: 0.08 + Math.random()*0.15};
         r.cur = newSegMesh(r); placeSeg(r.cur, x, z, x, z);
       }
@@ -721,6 +733,12 @@ function apply(m){
       const piece = r.cur || newSegMesh(r); placeSeg(piece, r.tsx, r.tsz, m.x, m.z); r.segMesh.push(piece);
       gridAdd(r, r.segs.length - 1);
       r.tsx = m.x; r.tsz = m.z; r.dir = m.d; r.cur = newSegMesh(r);
+      if (!owns(r)){ r.x = m.x; r.z = m.z; r.bx = m.x; r.bz = m.z; r.bt = m.tr; }
+      return;
+    }
+    case 'boost': {
+      const r = riders.get(m.id); if (!r || !r.alive || m.n !== round) return;
+      r.boostT0 = m.tr; r.boostT1 = m.tr + BOOST_T; r.boostReady = m.tr + BOOST_CD;
       if (!owns(r)){ r.x = m.x; r.z = m.z; r.bx = m.x; r.bz = m.z; r.bt = m.tr; }
       return;
     }
@@ -891,7 +909,7 @@ function botThink(r, dt){
   if (tRun - r.lastTurn < TURN_GAP) return;
   if (r.ai.rt < D.react) return;                 // reaction time: easier bots notice walls later
   r.ai.rt = 0;
-  const speed = speedAt(tRun), danger = (5 + speed*0.32)*D.look;
+  const speed = speedAt(tRun)*(boosting(r) ? 1 + BOOST_X : 1), danger = (5 + speed*0.32)*D.look;
   let front = freeDist(r, r.dir, danger + 2);
   if (front > danger && r.ai.t < r.ai.next) return;
   r.ai.t = 0; r.ai.next = D.think[0] + (D.plan ? 0.025*ci : 0) + Math.random()*(D.think[1] - D.think[0]);
@@ -928,6 +946,8 @@ function botThink(r, dt){
   }
   if (Math.random() < D.blunder) choice = Math.floor(Math.random()*3) - 1;   // NORMAL: an occasional mistake
   if (choice) ownTurn(r, choice);
+  // NORMAL / HARD: boost down a long open straight now and then
+  else if (D.boost && front >= 45 && tRun >= r.boostReady && Math.random() < D.boost) ownBoost(r);
 }
 
 /* ---------- moving bikes ---------- */
@@ -940,9 +960,23 @@ function ownTurn(r, delta){
   if (r.id === myId){ sfxTurn(); gpRumble(0, 0.2, 40); }
   return true;
 }
+// distance a rider covers between t0 and t1, including any boost in that window (owners and remote prediction agree)
+function travel(r, t0, t1){
+  let d = S(t1) - S(t0);
+  const a = Math.max(t0, r.boostT0), b = Math.min(t1, r.boostT1);
+  if (b > a) d += BOOST_X*(S(b) - S(a));
+  return d;
+}
+const boosting = r => tRun >= r.boostT0 && tRun < r.boostT1;
+function ownBoost(r){
+  if (!r.alive || state !== 'run' || tRun < r.boostReady) return false;
+  emit({t:'boost', id: r.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3), tr: +tRun.toFixed(3)});
+  if (r.id === myId){ sfxBoost(); gpRumble(0.4, 0.6, 250); }
+  return true;
+}
 function moveOwned(r, t0, t1){
   if (r.pend && t1 - r.lastTurn >= TURN_GAP) ownTurn(r, r.pend);
-  const dist = S(t1) - S(t0), steps = Math.max(1, Math.ceil(dist/0.3)), [dx, dz] = DIRS[r.dir], st = dist/steps;
+  const dist = travel(r, t0, t1), steps = Math.max(1, Math.ceil(dist/0.3)), [dx, dz] = DIRS[r.dir], st = dist/steps;
   for (let k=0;k<steps;k++){
     const nx = r.x + dx*st, nz = r.z + dz*st;
     if (hitAt(nx, nz, r)){ emit({t:'crash', id: r.id, n: round, x: +r.x.toFixed(3), z: +r.z.toFixed(3)}); return; }
@@ -952,7 +986,7 @@ function moveOwned(r, t0, t1){
 function moveRemote(r){
   // follow the last known point along the current heading, coasting at most a second
   const span = Math.max(0, Math.min(tRun, r.bt + 1.0) - r.bt), [dx, dz] = DIRS[r.dir];
-  const d = S(r.bt + span) - S(r.bt);
+  const d = travel(r, r.bt, r.bt + span);
   r.x = r.bx + dx*d; r.z = r.bz + dz*d;
 }
 /* ---------- camera and view ---------- */
@@ -1053,14 +1087,35 @@ function drawBoard(){
   const A = ARENAS[arenaId]; $('#arena').textContent = A.name; $('#arena').style.color = '#' + A.color.toString(16).padStart(6, '0');
   $('#round').textContent = 'ROUND ' + round + '  ·  FIRST TO ' + WIN_ROUNDS + (roster.some(q => q.bot) ? '  ·  ' + DIFFS[roundDiff].name + ' BOTS' : '') + (mode === 'online' && net ? '  ·  ROOM ' + net.code : '');
 }
+// boost meter (bar on desktop, the BOOST button on phones), a wider view while you boost, and exhaust sparks
+let fovBoost = 0, boostShown = -1;
+function updateBoost(dt){
+  const me = riders.get(myId), live = me && me.inRound && me.alive && (state === 'run' || state === 'countdown');
+  const f = !live ? 0 : state === 'countdown' ? 1 : Math.max(0, Math.min(1, 1 - (me.boostReady - tRun)/BOOST_CD));
+  const key = live ? Math.round(f*50) : -1;
+  if (key !== boostShown){
+    boostShown = key;
+    const bar = $('#boostbar'); bar.hidden = !live || IS_TOUCH; bar.classList.toggle('ready', f >= 1); bar.firstChild.style.transform = 'scaleX(' + f + ')';
+    const tb = $('#tboost'); tb.style.setProperty('--f', f); tb.classList.toggle('ready', live && f >= 1);
+  }
+  const want = live && state === 'run' && boosting(me) ? 1 : 0;
+  fovBoost += (want - fovBoost)*(1 - Math.exp(-dt*(want ? 10 : 4)));
+  const fov = 70 + 12*fovBoost;
+  if (Math.abs(camera.fov - fov) > 0.01){ camera.fov = fov; camera.updateProjectionMatrix(); }
+  if (state === 'run') for (const r of riders.values()){
+    if (!r.inRound || !r.alive || !boosting(r)) continue;
+    const [dx, dz] = DIRS[r.dir];
+    burst(r.x - dx*1.5, 0.45, r.z - dz*1.5, r.color, 2, 4);
+  }
+}
 function updateHint(){
   const pad = gpOn;
   const spec = spectating();
   $('#hint').innerHTML = spec ? '' : state === 'countdown' || state === 'run' || state === 'over'
-    ? (pad ? '<kbd>◀</kbd><kbd>▶</kbd> or <kbd>LB</kbd><kbd>RB</kbd> turn · <kbd>Start</kbd> leave' : '<kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> turn · <kbd>Esc</kbd> leave')
+    ? (pad ? '<kbd>◀</kbd><kbd>▶</kbd> or <kbd>LB</kbd><kbd>RB</kbd> turn · <kbd>A</kbd> or <kbd>RT</kbd> boost · <kbd>Start</kbd> leave' : '<kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> turn · <kbd>Space</kbd> boost · <kbd>Esc</kbd> leave')
     : (pad ? '<kbd>D-pad</kbd> choose · <kbd>A</kbd> select · <kbd>B</kbd> back' : '');
   $('#touch').hidden = !(IS_TOUCH && !pad && (state === 'countdown' || state === 'run' || spec));
-  $('#tview').hidden = !spec;
+  $('#tview').hidden = !spec; $('#tboost').hidden = spec;
 }
 
 /* ---------- menus ---------- */
@@ -1273,7 +1328,7 @@ function netRecv(d, conn){
     }
     const info = net.conns.get(conn); if (!info) return;
     info.last = now;
-    if (d.t !== 'turn' && d.t !== 'crash' && d.t !== 'pos' && d.t !== 'ping') return;   // joiners may only speak for their own bike
+    if (d.t !== 'turn' && d.t !== 'crash' && d.t !== 'pos' && d.t !== 'boost' && d.t !== 'ping') return;   // joiners may only speak for their own bike
     if (d.t === 'ping') return;
     d.id = info.id;
     for (const c of net.conns.keys()) if (c !== conn && c.open) c.send(d);
@@ -1315,6 +1370,7 @@ function netTick(dt){
 /* ---------- input: keyboard, touch, controller ---------- */
 let leaveArm = 0;
 function localTurn(delta){ audio(); const me = riders.get(myId); if (me && me.inRound && me.alive) ownTurn(me, delta); else if (spectating()) specCycle(delta); }
+function localBoost(){ audio(); const me = riders.get(myId); if (me && me.inRound && me.alive) ownBoost(me); }
 function tryLeave(){
   if (leaveArm > 0){ leaveArm = 0; toMenu(); return; }
   leaveArm = 2; flash('LEAVE?', mode === 'online' ? 'PRESS AGAIN TO LEAVE THE ROOM' : 'PRESS AGAIN FOR THE MENU');
@@ -1324,12 +1380,13 @@ window.addEventListener('keydown', e => {
   const inGame = state === 'run' || state === 'countdown' || state === 'over' || state === 'spectate';
   if (e.code === 'ArrowLeft' || e.code === 'KeyA'){ e.preventDefault(); localTurn(-1); }
   else if (e.code === 'ArrowRight' || e.code === 'KeyD'){ e.preventDefault(); localTurn(1); }
+  else if ((e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') && inGame){ e.preventDefault(); localBoost(); }
   else if ((e.code === 'KeyV' || e.code === 'KeyC') && spectating()) specToggle();
   else if (e.code === 'Escape' && inGame) tryLeave();
 });
 document.querySelectorAll('#touch button').forEach(b => b.addEventListener('pointerdown', e => {
   e.preventDefault(); b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 120);
-  if (b.dataset.v){ if (spectating()) specToggle(); } else localTurn(+b.dataset.t);
+  if (b.dataset.v){ if (spectating()) specToggle(); } else if (b.dataset.b) localBoost(); else localTurn(+b.dataset.t);
 }));
 // controllers: the browser shows one after a button is pressed while the page has focus
 let gpOn = false; const gpPrev = [];
@@ -1360,6 +1417,7 @@ function gpUpdate(dt){
     if (gpStickArm && Math.abs(lx) > 0.7){ localTurn(lx < 0 ? -1 : 1); gpStickArm = false; }
     if (Math.abs(lx) < 0.3) gpStickArm = true;
     if (pressed(3) && spectating()) specToggle();
+    if (pressed(0) || pressed(7)) localBoost();
     if (pressed(9)) tryLeave();
   }
   for (let i=0;i<g.buttons.length;i++) gpPrev[i] = down(i);
@@ -1398,7 +1456,7 @@ function frame(now){
   if (isAuth()) authTick(dt);
   netTick(dt);
   if (msgT > 0){ msgT -= dt; if (msgT <= 0) $('#msg').innerHTML = ''; }
-  updateBikes(dt); updateSparks(dt); updateBooms(dt); updateCamera(dt);
+  updateBikes(dt); updateBoost(dt); updateSparks(dt); updateBooms(dt); updateCamera(dt);
   floorMat.uniforms.uTime.value = wallMat.uniforms.uTime.value = now/1000;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

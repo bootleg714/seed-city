@@ -726,6 +726,16 @@ third (desktop only: new player car, banked turning, online Dogfight).
    bot-only runs (open grid, 3 bots): average round incl. ~6 s of
    countdown/results EASY 33 s (10 rounds), NORMAL 50 s, HARD 68 s.
    Bike speed is the same at every level.
+ - Boost (2026-10-19): +70% speed for 1 s (BOOST_X, BOOST_T), recharge
+   5 s from the start (BOOST_CD), ready at GO. Space / W / Up, controller
+   A or RT, touch BOOST button between the turn buttons (it fills as it
+   recharges and glows when ready; desktop shows a bar above the hint).
+   travel(r, t0, t1) adds the boost window to S() so owners and remote
+   prediction agree; message boost {id, n, x, z, tr}, relayed for joiners.
+   Wider view (FOV +12) and exhaust sparks while boosting; engine pitch
+   x1.22. Bots: NORMAL 8% / HARD 20% chance per think on a straight with
+   45+ units clear; EASY never. Phones: the round pill moves right and
+   wraps so it no longer covers the scoreboard.
  - Not ported: DC title logo (it says "DC"), the 8-view sprite bikes, the
    hardware-only fixes (tile lists, font texture, wall flicker).
 
