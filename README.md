@@ -8,11 +8,13 @@ An endless, procedurally generated city that grows from a single number. Every t
 | --- | --- |
 | `index.html` | **VR build.** Open it in the Meta Quest browser and press **Enter VR**. Also runs as a flat preview on any computer. |
 | `cycles/` | **Neon Cycles**, a separate light-cycle arena game (solo against bots, or online with room codes). |
+| `sumo/` | **Neon Sumo**, bumper sumo on a shrinking neon platform (solo against bots, or online with room codes). |
 | `desktop.html` | **Full desktop build.** HDR bloom, rain with wet-street reflections, car reflections, chase and cockpit views. |
 
 Once GitHub Pages is on, the links are:
 
 - Neon Cycles: `https://bootleg714.github.io/seed-city/cycles/`
+- Neon Sumo: `https://bootleg714.github.io/seed-city/sumo/`
 
 - VR: `https://bootleg714.github.io/seed-city/`
 - Desktop: `https://bootleg714.github.io/seed-city/desktop.html`
@@ -26,6 +28,16 @@ A menu floats over the live city when you start (in VR, point a controller at it
 - **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
 - **Combat:** waves of interceptor drones circle you, climb over buildings and fire red bolts that lead your movement (buildings block them). Your shield drops with each hit and recharges after a few seconds out of fire; at zero you're shot down. Each wave adds drones that are faster and shoot more often; clearing one scores a bonus and restores some shield. Your lasers get a slight aim assist, the red arrow points to the nearest drone, and your best score per seed is saved.
 - **Dogfight (desktop, online):** fly against friends. One pilot picks **Host a room** and shares the four-letter code; the others type it in and pick **Join a room** (or open `desktop.html#room=CODE`). Everyone flies in the host's city, up to 6 pilots. Lasers chip away at shields, a red arrow points to the nearest pilot, and you respawn three seconds after being shot down. It is peer to peer through the free PeerJS service, so there is no server to run; some strict networks (some workplaces, schools or mobile hotspots) block direct connections.
+
+## Neon Sumo
+
+Roll your ball into the others and knock them off the platform. The platform starts shrinking 6 seconds into each round, and a sudden-death shrink ends any round that drags on. Last ball on the platform takes the round; first to 3 wins.
+
+- **Keyboard:** WASD or arrows to roll, Space (or Shift) to dash, M for sound, Esc twice to leave
+- **Touch:** drag on the left side to roll, DASH button bottom right
+- **Controller:** left stick rolls, A or RT dashes, Start leaves
+
+Online works like Neon Cycles: host a room, share the four-letter code or the invite link (`sumo/#room=CODE`), and the host can add bots. Up to 6 players. Because balls push each other, the host runs the physics for everyone; joiners send only their stick and dash, and predict their own ball so controls feel instant. Peer to peer through PeerJS, with ids `neonsumo-<CODE>`.
 
 ## Music
 
