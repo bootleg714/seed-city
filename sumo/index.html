@@ -57,6 +57,7 @@ a.back:hover{color:var(--fg)}
 #msg small{display:block;font:600 14px/1.5 var(--f-data);letter-spacing:.2em;color:var(--muted);text-shadow:none;margin-top:8px}
 #hint{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);left:50%;transform:translateX(-50%);font:12px/1.4 var(--f-body);color:var(--muted);white-space:nowrap;pointer-events:none}
 #hint kbd{font:600 11px/1 var(--f-data);border:1px solid var(--line);border-radius:4px;padding:2px 5px;color:var(--fg)}
+#fx{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 54px);transform:translateX(-50%);font:700 12px/1 var(--f-data);letter-spacing:.2em;text-shadow:0 0 10px currentColor;white-space:nowrap}
 #dashbar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 40px);transform:translateX(-50%);width:160px;height:6px;border-radius:3px;background:rgba(255,255,255,.08);border:1px solid var(--line);overflow:hidden}
 #dashbar i{display:block;height:100%;width:100%;background:var(--amber);transform-origin:left;box-shadow:0 0 10px var(--amber)}
 #dashbar.ready{border-color:var(--amber)}
@@ -67,7 +68,7 @@ a.back:hover{color:var(--fg)}
 #tdash{all:unset;pointer-events:auto;position:fixed;right:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);width:108px;height:108px;border-radius:50%;border:1px solid var(--line);background:rgba(6,10,20,.5);display:grid;place-items:center;font:700 15px/1 var(--f-data);letter-spacing:.16em;color:var(--muted)}
 #tdash.ready{border-color:var(--amber);color:#fff;box-shadow:0 0 18px rgba(255,180,94,.45);background:rgba(255,180,94,.18)}
 @media (max-width:640px){ #feed{top:calc(env(safe-area-inset-top,0px) + 46px);right:10px} #round{left:auto;right:10px;transform:none;font-size:10px;padding:6px 10px} #msg{font-size:30px} }
-@media (max-height:460px){ #hint{display:none} #dashbar{bottom:calc(env(safe-area-inset-bottom,0px) + 12px)} #board{gap:3px;padding:6px 10px} #board .pl{font-size:11px} }
+@media (max-height:460px){ #hint{display:none} #dashbar{bottom:calc(env(safe-area-inset-bottom,0px) + 12px)} #fx{bottom:calc(env(safe-area-inset-bottom,0px) + 26px)} #board{gap:3px;padding:6px 10px} #board .pl{font-size:11px} }
 @media (prefers-reduced-motion: reduce){ .title,#msg{text-shadow:none} }
 </style>
 </head>
@@ -78,6 +79,7 @@ a.back:hover{color:var(--fg)}
   <div id="board"></div>
   <div id="msg"></div>
   <div id="feed" aria-live="polite"></div>
+  <div id="fx" hidden></div>
   <div id="dashbar"><i></i></div>
 </div>
 <div id="hint"></div>
@@ -231,6 +233,7 @@ const ballTex = canvasTex(512, (g, s) => {
 });
 const ballGeo = new THREE.SphereGeometry(BALL, 40, 24);
 const padGeo = new THREE.PlaneGeometry(3.6, 3.6).rotateX(-Math.PI/2);
+const auraGeo = new THREE.TorusGeometry(BALL*1.3, 0.07, 8, 48).rotateX(Math.PI/2);
 const markGeo = new THREE.ConeGeometry(0.32, 0.6, 4).rotateX(Math.PI);
 function makeBallMesh(color){
   const g = new THREE.Group();
@@ -241,7 +244,77 @@ function makeBallMesh(color){
   const pad = new THREE.Mesh(padGeo, new THREE.MeshBasicMaterial({color, map: glowTex, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending}));
   pad.position.y = 0.04; g.add(pad);
   scene.add(g);
-  return {g, ball, halo, pad};
+  const aura = new THREE.Mesh(auraGeo, new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending}));
+  aura.position.y = BALL; aura.visible = false; g.add(aura);
+  return {g, ball, halo, pad, aura};
+}
+/* ---------- power-ups ----------
+   One pickup at a time, near the middle. Heavy: three times your weight for 5 s.
+   Shockwave: blasts everyone near you outward (and the knockouts are yours).
+   Grip: you stop on a dime and steer hard for 5 s, so the edge is less scary. */
+const POWERS = [{name: 'HEAVY', color: 0xa98bff, time: 5}, {name: 'SHOCKWAVE', color: 0x33d9ff, time: 0}, {name: 'GRIP', color: 0x8dff4a, time: 5}];
+const PU_FIRST = 5, PU_EVERY = 8, PU_REACH = 1.7, WAVE_R = 6.5;
+let pickup = null, puT = PU_FIRST;
+const puMeshes = [new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.TorusGeometry(0.55, 0.16, 10, 28), new THREE.OctahedronGeometry(0.65)].map((geo, k) => {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color: 0x101018, emissive: POWERS[k].color, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.4})));
+  const h = new THREE.Sprite(new THREE.SpriteMaterial({map: glowTex, color: POWERS[k].color, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending}));
+  h.scale.set(3.8, 3.8, 1); h.material.opacity = 0.8; g.add(h);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.4, 6, 12, 1, true).translate(0, 3, 0), new THREE.MeshBasicMaterial({color: POWERS[k].color, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide}));
+  beam.position.y = -1.2; g.add(beam);
+  g.scale.setScalar(1.3); g.visible = false; scene.add(g); return g;
+});
+const waveRing = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color: 0x33d9ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide}));
+waveRing.position.y = 0.08; scene.add(waveRing);
+let waveT = 1;
+const mass = r => r.heavy > 0 ? 3 : 1;
+function spawnPickup(){
+  const H = holeR();
+  for (let tries = 0; tries < 12; tries++){
+    const a = Math.random()*Math.PI*2, lo = H ? H + 1.6 : 0, hi = Math.max(lo + 0.5, Math.min(R*0.45, R - 2.5));
+    const d = lo + Math.random()*(hi - lo), x = Math.cos(a)*d, z = Math.sin(a)*d;
+    if (postsUp() && POSTS.some(p => Math.hypot(p.x - x, p.z - z) < 2.2)) continue;
+    emit({t: 'pu', k: Math.floor(Math.random()*POWERS.length), x: +x.toFixed(2), z: +z.toFixed(2)});
+    return;
+  }
+}
+// authority: spawn, despawn when the edge reaches it, hand it to whoever touches it
+function pickupTick(dt){
+  if (!pickup){
+    puT -= dt;
+    if (puT <= 0){ puT = PU_EVERY; if (R > 6.5) spawnPickup(); }
+    return;
+  }
+  if (Math.hypot(pickup.x, pickup.z) > R - 1){ emit({t: 'pu', k: -1}); puT = PU_EVERY; return; }
+  for (const r of riders.values()){
+    if (!r.inRound || !r.alive || r.falling || Math.hypot(r.x - pickup.x, r.z - pickup.z) > PU_REACH) continue;
+    const k = pickup.k;
+    if (k === 1) shockwave(r);
+    emit({t: 'got', id: r.id, k, x: +r.x.toFixed(2), z: +r.z.toFixed(2)});
+    puT = PU_EVERY;
+    return;
+  }
+}
+function waveKick(o, x, z){
+  const dx = o.x - x, dz = o.z - z, d = Math.hypot(dx, dz);
+  if (d > WAVE_R || d < 1e-3 || o.falling) return false;
+  const imp = (7 + 14*(1 - d/WAVE_R))/mass(o);
+  o.vx += dx/d*imp; o.vz += dz/d*imp;
+  return true;
+}
+function shockwave(r){
+  for (const o of riders.values()) if (o !== r && o.inRound && o.alive && waveKick(o, r.x, r.z)) o.lastHit = {id: r.id, t: tRun};
+}
+function pickupsUpdate(dt, now){
+  puMeshes.forEach((g, k) => {
+    g.visible = !!pickup && pickup.k === k && (state === 'run' || state === 'countdown');
+    if (!g.visible) return;
+    g.position.set(pickup.x, 1.3 + Math.sin(now*3)*0.18, pickup.z);
+    g.children[0].rotation.set(now*0.9, now*1.6, 0);
+  });
+  waveT += dt*1.8;
+  waveRing.material.opacity = Math.max(0, 0.9*(1 - waveT));
+  const s = 0.5 + waveT*WAVE_R; waveRing.scale.set(s, 1, s);
 }
 const youMark = new THREE.Mesh(markGeo, new THREE.MeshBasicMaterial({color: 0xffffff})); youMark.visible = false; scene.add(youMark);
 
@@ -304,6 +377,7 @@ const sfx = {
   out(){ noise(0.5, 400, 0.35); },
   beep(hi){ tone(hi ? 880 : 440, hi ? 880 : 440, hi ? 0.35 : 0.14, 'square', 0.07); },
   post(s){ const v = Math.min(1, s/14); tone(1320, 880, 0.25, 'triangle', 0.1 + v*0.15); tone(330, 160, 0.18, 'sine', 0.2 + v*0.3); },
+  wave(){ tone(180, 40, 0.7, 'sine', 0.6); noise(0.6, 1600, 0.4); },
   final(){ tone(110, 38, 1.6, 'sine', 0.55); noise(1.2, 220, 0.4); tone(660, 220, 1.2, 'triangle', 0.06, 0.05); },
   win(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.3, 'triangle', 0.12, i*0.1)); },
 };
@@ -329,7 +403,7 @@ function syncRiders(){
     if (r && r.c !== q.c){ dropRider(q.id); r = null; }
     if (!r){
       r = {id: q.id, c: q.c, bot: q.bot, x: 0, z: 0, vx: 0, vz: 0, y: 0, vy: 0, alive: false, falling: false, inRound: false,
-           dashCd: 0, inp: {x: 0, z: 0}, dseq: 0, think: 0, pulse: 0, wasFalling: false,
+           dashCd: 0, heavy: 0, grip: 0, inp: {x: 0, z: 0}, dseq: 0, think: 0, pulse: 0, wasFalling: false,
            sx: 0, sz: 0, svx: 0, svz: 0, sy: 0, st: 0, dx: 0, dz: 0, dy: 0, mesh: makeBallMesh(COLORS[q.c % COLORS.length][1])};
       r.mesh.g.visible = false;
       riders.set(q.id, r);
@@ -339,7 +413,7 @@ function syncRiders(){
 }
 function dropRider(id){
   const r = riders.get(id); if (!r) return;
-  scene.remove(r.mesh.g); r.mesh.ball.material.dispose(); r.mesh.halo.material.dispose(); r.mesh.pad.material.dispose();
+  scene.remove(r.mesh.g); r.mesh.ball.material.dispose(); r.mesh.halo.material.dispose(); r.mesh.pad.material.dispose(); r.mesh.aura.material.dispose();
   riders.delete(id);
 }
 
@@ -347,9 +421,9 @@ function dropRider(id){
 function stepBall(r, dt, control){
   if (!r.falling && control){
     let ix = r.inp.x, iz = r.inp.z; const m = Math.hypot(ix, iz); if (m > 1){ ix /= m; iz /= m; }
-    r.vx += ix*ACC*dt; r.vz += iz*ACC*dt;
+    const a = ACC*(r.grip > 0 ? 1.8 : 1); r.vx += ix*a*dt; r.vz += iz*a*dt;
   }
-  const d = Math.exp(-(r.falling ? 0.3 : DRAG)*dt); r.vx *= d; r.vz *= d;
+  const d = Math.exp(-(r.falling ? 0.3 : r.grip > 0 ? 4.2 : DRAG)*dt); r.vx *= d; r.vz *= d;
   r.x += r.vx*dt; r.z += r.vz*dt;
   if (r.falling){ r.vy -= GRAV*dt; r.y += r.vy*dt; }
   r.dashCd = Math.max(0, r.dashCd - dt);
@@ -360,11 +434,12 @@ function collide(a, b, onlyA){
   if (d >= BALL*2 || d < 1e-6) return 0;
   const nx = dx/d, nz = dz/d, over = BALL*2 - d;
   const rv = (b.vx - a.vx)*nx + (b.vz - a.vz)*nz;
-  if (onlyA){ a.x -= nx*over; a.z -= nz*over; } else { a.x -= nx*over/2; a.z -= nz*over/2; b.x += nx*over/2; b.z += nz*over/2; }
+  const ia = 1/mass(a), ib = 1/mass(b);   // a Heavy ball is three times the weight
+  if (onlyA){ a.x -= nx*over; a.z -= nz*over; } else { a.x -= nx*over*ia/(ia + ib); a.z -= nz*over*ia/(ia + ib); b.x += nx*over*ib/(ia + ib); b.z += nz*over*ib/(ia + ib); }
   if (rv >= 0) return 0;
-  const j = -(1 + BOUNCE)*rv/2;
-  a.vx -= j*nx; a.vz -= j*nz;
-  if (!onlyA){ b.vx += j*nx; b.vz += j*nz; }
+  const j = -(1 + BOUNCE)*rv/(ia + ib);
+  a.vx -= j*ia*nx; a.vz -= j*ia*nz;
+  if (!onlyA){ b.vx += j*ib*nx; b.vz += j*ib*nz; }
   return -rv;
 }
 function doDash(r, dx, dz){
@@ -412,7 +487,9 @@ function botThink(r, dt){
   let tgt = null, best = 1e9;
   for (const o of riders.values()){ if (o === r || !o.inRound || !o.alive || o.falling) continue; const k = Math.hypot(o.x - r.x, o.z - r.z); if (k < best){ best = k; tgt = o; } }
   let ix = 0, iz = 0;
-  if (tgt){
+  const pd = pickup ? Math.hypot(pickup.x - r.x, pickup.z - r.z) : 1e9;
+  if (pickup && pd < 8 && pd < best*1.4){ ix = (pickup.x - r.x)/pd; iz = (pickup.z - r.z)/pd; }
+  else if (tgt){
     // aim at the side of the target facing the middle, so the hit pushes it outward
     const td = Math.hypot(tgt.x, tgt.z) || 1;
     let ax = tgt.x - r.x, az = tgt.z - r.z;
@@ -453,6 +530,7 @@ function nextRound(){
 function authTick(dt){
   if (state === 'run'){
     tRun += dt; R = platformR(tRun);
+    pickupTick(dt);
     const left = [...riders.values()].filter(r => r.inRound && r.alive);
     if (left.length <= 1 && roster.length > 1 || left.length === 0){
       const w = left.length === 1 ? left[0].id : null;
@@ -483,13 +561,14 @@ function apply(m){
     case 'round':
       round = m.n; scores = m.scores || scores; R = R0; tRun = 0; cdLeft = 3; state = 'countdown'; finalSent = false; slow = 0;
       if (m.n === 1) kos = {};
+      pickup = null; puT = PU_FIRST;
       arena = m.a | 0; ringFrac = -1; postMeshes.forEach(p => { p.y = 0; });
       $('#feed').innerHTML = '';
       for (const r of riders.values()){ r.inRound = false; r.alive = false; r.mesh.g.visible = false; }
       for (const [id, x, z] of m.s){
         const r = riders.get(id); if (!r) continue;
         Object.assign(r, {lastHit: null, fallBy: null, x, z, vx: 0, vz: 0, y: 0, vy: 0, alive: true, falling: false, wasFalling: false, inRound: true, dashCd: 0, sx: x, sz: z, svx: 0, svz: 0, sy: 0, st: now, dx: x, dz: z, dy: 0});
-        r.inp.x = r.inp.z = 0; r.mesh.g.visible = true;
+        r.inp.x = r.inp.z = 0; r.heavy = r.grip = 0; r.mesh.g.visible = true;
       }
       $('#hud').hidden = false; showPage(null); lastBeep = 4;
       drawBoard();
@@ -518,6 +597,24 @@ function apply(m){
       if (m.id === myId){ flash('KNOCKED OUT', by ? 'BY ' + nameOf(by).toUpperCase() : 'WATCH THE REST'); rumble(1, 1, 300); }
       else if (by === myId){ rumble(0.6, 0.8, 200); }
       drawBoard();
+      break;
+    }
+    case 'pu':
+      pickup = m.k >= 0 ? {k: m.k, x: m.x, z: m.z} : null;
+      if (pickup){ burst(m.x, 1.3, m.z, POWERS[m.k].color, 14, 4); tone(660, 990, 0.18, 'sine', 0.08); }
+      break;
+    case 'got': {
+      pickup = null;
+      const r = riders.get(m.id), P = POWERS[m.k]; if (!r || !P) break;
+      if (m.k === 0) r.heavy = P.time; if (m.k === 2) r.grip = P.time;
+      r.pulse = 1; burst(m.x, 1, m.z, P.color, 24, 6);
+      feed(tagName(m.id) + ' got <b style="color:' + hex(P.color) + '">' + P.name + '</b>');
+      if (m.k === 1){
+        waveT = 0; waveRing.position.x = m.x; waveRing.position.z = m.z; sfx.wave();
+        const me = riders.get(myId);
+        if (me && me.inRound && me.alive && !isAuth() && m.id !== myId) waveKick(me, m.x, m.z);   // joiners feel the blast right away
+        if (me && me.alive && Math.hypot(me.dx - m.x, me.dz - m.z) < WAVE_R){ shake = Math.max(shake, 0.5); rumble(0.8, 0.8, 250); }
+      } else { tone(440, 880, 0.3, 'triangle', 0.12); if (m.id === myId) rumble(0.4, 0.6, 150); }
       break;
     }
     case 'post': {
@@ -950,7 +1047,7 @@ function frame(){
       const me = riders.get(myId);
       if (me && me.inRound && me.alive && !me.falling){
         stepBall(me, STEP, state === 'run');
-        for (const o of riders.values()) if (o !== me && o.inRound && o.alive){ const ghostB = {x: o.dx, z: o.dz, vx: o.svx, vz: o.svz, y: o.dy}; collide(me, ghostB, true); }
+        for (const o of riders.values()) if (o !== me && o.inRound && o.alive){ const ghostB = {x: o.dx, z: o.dz, vx: o.svx, vz: o.svz, y: o.dy, heavy: o.heavy}; collide(me, ghostB, true); }
         if (postsUp()) POSTS.forEach(p => postHit(me, p));
       }
     }
@@ -975,6 +1072,10 @@ function frame(){
     const mx = r.dx - px, mz = r.dz - pz, dist = Math.hypot(mx, mz);
     if (dist > 1e-4 && dist < 3){ axis.set(mz, 0, -mx).normalize(); r.mesh.ball.rotateOnWorldAxis(axis, dist/BALL); }
     r.pulse = Math.max(0, r.pulse - gdt*2.5);
+    r.heavy = Math.max(0, r.heavy - gdt); r.grip = Math.max(0, r.grip - gdt);
+    const fxK = r.heavy > 0 ? 0 : r.grip > 0 ? 2 : -1, au = r.mesh.aura;
+    au.visible = fxK >= 0;
+    if (au.visible){ au.material.color.setHex(POWERS[fxK].color); const left = fxK ? r.grip : r.heavy; au.material.opacity = left < 1.2 ? 0.4 + 0.4*Math.round((now*6) % 1) : 0.85; au.rotation.y = now*3; au.scale.setScalar(fxK === 0 ? 1.05 : 1 + 0.06*Math.sin(now*10)); }
     const s = 4.2 + r.pulse*3; r.mesh.halo.scale.set(s, s, 1);
     r.mesh.ball.material.emissiveIntensity = 1.1 + r.pulse*1.6;
     r.mesh.pad.visible = !r.falling && r.dy > -0.5;
@@ -989,6 +1090,7 @@ function frame(){
   curtainMat.uniforms.col.value.setHex(shrinking ? 0xff4fbf : 0x33d9ff);
   sparksUpdate(gdt);
   postsUpdate(gdt);
+  pickupsUpdate(gdt, now);
 
   // camera: high and behind, leaning toward your ball, wider on portrait screens
   const me = riders.get(myId);
@@ -1015,12 +1117,15 @@ function frame(){
     $('#tdash').classList.toggle('ready', f >= 1);
   } else youMark.visible = false;
   $('#dashbar').hidden = !(me && me.inRound && me.alive);
+  const myFx = me && me.inRound && me.alive ? (me.heavy > 0 ? [0, me.heavy] : me.grip > 0 ? [2, me.grip] : null) : null;
+  $('#fx').hidden = !myFx;
+  if (myFx){ $('#fx').textContent = POWERS[myFx[0]].name + ' ' + myFx[1].toFixed(1); $('#fx').style.color = hex(POWERS[myFx[0]].color); }
 
   renderer.render(scene, camera);
 }
 
 // expose a little state for automated tests
-window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get roster(){ return roster; }, get scores(){ return scores; }, get round(){ return round; }, get R(){ return R; }, get myId(){ return myId; }, get kos(){ return kos; }, get arena(){ return arena; }, setArena(v){ arenaSel = v; }, get slow(){ return slow; },
+window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get roster(){ return roster; }, get scores(){ return scores; }, get round(){ return round; }, get R(){ return R; }, get myId(){ return myId; }, get kos(){ return kos; }, get arena(){ return arena; }, get pickup(){ return pickup; }, fx: () => [...riders.values()].map(r => [r.id, +r.heavy.toFixed(1), +r.grip.toFixed(1)]), setArena(v){ arenaSel = v; }, get slow(){ return slow; },
   riders: () => [...riders.values()].map(r => ({id: r.id, x: r.x, z: r.z, dx: r.dx, dz: r.dz, alive: r.alive, inRound: r.inRound, falling: r.falling})), page: () => page, net: () => net && {role: net.role, code: net.code}};
 
 addEventListener('pagehide', netLeave);   // tell the room right away when the tab closes

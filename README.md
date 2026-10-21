@@ -35,6 +35,8 @@ Roll your ball into the others and knock them off the platform. The platform sta
 
 Three arenas: **Classic** (a plain disc), **Donut** (a hole in the middle you can fall through) and **Bumpers** (four posts that kick you away hard; bank someone off one and the knockout is still yours, and the posts sink once the shrinking edge reaches them). Pick one from the Arena button on the menu or in the lobby, or leave it on **Mixed** to play them in turn, one per round. The host's pick applies to everyone in the room.
 
+Power-ups: one glowing pickup appears near the middle 5 seconds into a round, and a new one 8 seconds after each is taken. Roll through it to grab it. **Heavy** (violet cube) makes you three times the weight for 5 seconds. **Shockwave** (cyan ring) blasts everyone near you outward, and any knockouts it causes are yours. **Grip** (lime crystal) lets you stop and steer hard for 5 seconds. Your active power-up and its time left show above the dash bar, and a ring around your ball flashes when it is about to run out.
+
 - **Keyboard:** WASD or arrows to roll, Space (or Shift) to dash, M for sound, Esc twice to leave
 - **Touch:** drag on the left side to roll, DASH button bottom right
 - **Controller:** left stick rolls, A or RT dashes, Start leaves
