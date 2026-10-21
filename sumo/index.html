@@ -702,7 +702,7 @@ function showPage(p){
       '<button class="btn" data-id="host"><b>Host a room</b><span>Get a code to share with friends (up to ' + MAX_PLAYERS + ')</span></button>' +
       '<input class="code" id="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" value="' + lastCode + '">' +
       '<button class="btn" data-id="join"><b>Join a room</b><span>Type the host’s four-letter code above</span></button>') +
-      '<a class="back" href="../cycles/">Play Neon Cycles</a>';
+      '<a class="back" href="../arcade/">Seed City Arcade: play with friends across games</a>';
     if ($('#code')) $('#code').addEventListener('keydown', e => { if (e.key === 'Enter') netJoin($('#code').value); });
   } else if (p === 'wait'){
     card.innerHTML = '<p class="kicker">ONLINE</p><p class="sub">' + netStatus + '</p><button class="btn small" data-id="cancel"><b>Cancel</b></button>';
@@ -718,6 +718,7 @@ function showPage(p){
           '<button class="btn small" data-id="arena"><b>Arena: ' + arenaLabel(arenaSel) + '</b><span>' + (arenaSel === 'mix' ? 'Classic, Donut and Bumpers in turn' : 'Tap to change') + '</span></button>' +
           '<button class="btn' + (roster.length < 2 ? ' off' : '') + '" data-id="start"><b>Start match</b><span>' + (roster.length < 2 ? 'Waiting for players (or add a bot)' : roster.length + ' balls, first to ' + WINS) + '</span></button>'
         : '<p class="sub">Arena: ' + arenaLabel(arenaSel) + '. Waiting for the host to start…</p>') +
+      (ARCADE && host ? '<button class="btn small" data-id="arcade"><b>Back to arcade</b><span>Everyone in the room comes with you</span></button>' : '') +
       '<button class="btn small" data-id="leave"><b>Leave room</b></button>';
   } else if (p === 'again'){
     card.innerHTML = '<p class="kicker">MATCH OVER</p><h1 class="title">' + (lastWinner === myId ? 'CHAMPION' : 'BETTER LUCK') + '</h1>' +
@@ -738,6 +739,7 @@ $('#card').addEventListener('click', e => {
   else if (id === 'addbot' && roster.length < MAX_PLAYERS){ roster.push({id: 'b' + (nextBot++), c: freeColor(), bot: true}); scores = {}; emit({t: 'roster', roster, scores}); }
   else if (id === 'rembot'){ const i = roster.map(q => q.bot).lastIndexOf(true); if (i >= 0){ roster.splice(i, 1); emit({t: 'roster', roster, scores}); } }
   else if (id === 'start' && roster.length >= 2) startMatch();
+  else if (id === 'arcade' && net && net.role === 'host') goArcade(true);
   else if (id === 'arena' && (!net || net.role === 'host')){
     arenaSel = arenaSel === 'mix' ? 0 : arenaSel === ARENAS.length - 1 ? 'mix' : arenaSel + 1;
     try{ localStorage.setItem('neonsumo-arena', String(arenaSel)); }catch(_){}
@@ -784,11 +786,20 @@ function netSend(m){
   if (net.role === 'host'){ for (const c of net.conns.keys()) if (c.open) c.send(m); }
   else if (net.conn && net.conn.open) net.conn.send(m);
 }
-async function netHost(attempt){
+/* ---------- Seed City Arcade: a party moves between games with one room code ----------
+   ../arcade/ sends the host here as #host=CODE&arcade and everyone else as #room=CODE&arcade&wait.
+   In the lobby the host's "Back to arcade" sends {t:'arcade'} and everyone returns together. */
+const ARCADE = /(^|[#&])arcade(&|$)/.test(location.hash), ARCADE_WAIT = /(^|[#&])wait(&|$)/.test(location.hash);
+function goArcade(asHost){
+  const code = net && net.code;
+  if (asHost){ netSend({t: 'arcade'}); setTimeout(() => { location.href = '../arcade/#host=' + code; }, 400); }
+  else location.href = '../arcade/' + (code ? '#room=' + code + '&wait' : '');
+}
+async function netHost(attempt, fixed){   // fixed: re-open a code we already hold (coming from the arcade)
   netLeave(); netWait('Opening a room…');
   let P; try{ P = await loadPeerJS(); }catch(e){ return netFail('Couldn’t start online play: ' + e.message + '.'); }
   if (page !== 'wait') return;
-  const code = newCode(), peer = new P(NET_PREFIX + code, peerOpts());
+  const code = fixed || newCode(), peer = new P(NET_PREFIX + code, peerOpts());
   net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
   const me = net;
   peer.on('open', () => {
@@ -805,11 +816,12 @@ async function netHost(attempt){
   peer.on('disconnected', () => { try{ if (!peer.destroyed) peer.reconnect(); }catch(_){} });
   peer.on('error', err => {
     if (net !== me) return;
+    if (err.type === 'unavailable-id' && fixed && (attempt || 0) < 8){ try{ peer.destroy(); }catch(_){} return setTimeout(() => { if (net === me) netHost((attempt || 0) + 1, fixed); }, 1000); }   // the old id can take a moment to free up
     if (err.type === 'unavailable-id' && (attempt || 0) < 4) return netHost((attempt || 0) + 1);
     if (state !== 'lobby' && mode !== 'online') netFail('Couldn’t open a room (' + (err.type || 'error') + '). Try again in a moment.');
   });
 }
-async function netJoin(code){
+async function netJoin(code, attempt){
   code = String(code || '').trim().toUpperCase(); lastCode = code;
   if (!/^[A-Z0-9]{4}$/.test(code)){ netErr = 'Room codes are four letters or digits.'; showPage('err'); return; }
   netLeave(); netWait('Joining room ' + code + '…');
@@ -829,6 +841,7 @@ async function netJoin(code){
   });
   peer.on('error', err => {
     if (net !== me) return;
+    if (err.type === 'peer-unavailable' && ARCADE_WAIT && (attempt || 0) < 12){ setTimeout(() => { if (net === me) netJoin(code, (attempt || 0) + 1); }, 1500); return; }   // arriving from the arcade: the host may still be opening the room
     if (err.type === 'peer-unavailable') netFail('No room called ' + code + '. Check the code with the host.');
     else netFail('Connection problem (' + (err.type || 'error') + ').');
   });
@@ -873,6 +886,7 @@ function netRecv(d, conn){
       else { state = 'over'; $('#hud').hidden = false; showPage(null); flash('JOINED', 'YOU PLAY NEXT ROUND'); drawBoard(); }
       return;
     }
+    if (d.t === 'arcade'){ goArcade(false); return; }
     if (d.t === 'full'){ netFail('That room is full (' + MAX_PLAYERS + ' players).'); return; }
     if (d.t === 'st'){ snapshot(d, now); return; }
     if (d.t === 'ping') return;
@@ -1130,8 +1144,10 @@ window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get r
 
 addEventListener('pagehide', netLeave);   // tell the room right away when the tab closes
 showPage('main');
-const m = /room=([A-Za-z0-9]{4})/.exec(location.hash);
-if (m){ lastCode = m[1].toUpperCase(); netJoin(lastCode); }
+const m = /room=([A-Za-z0-9]{4})/.exec(location.hash), mh = /host=([A-Za-z0-9]{4})/.exec(location.hash);
+if (mh || m) try{ history.replaceState(null, '', location.pathname); }catch(_){}
+if (mh){ netHost(0, mh[1].toUpperCase()); }
+else if (m){ lastCode = m[1].toUpperCase(); netJoin(lastCode); }
 requestAnimationFrame(frame);
 })();
 </script>

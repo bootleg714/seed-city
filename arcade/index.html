@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Seed City Arcade</title>
+<meta name="description" content="Get your friends into one room, then play Neon Cycles and Neon Sumo together without swapping codes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=JetBrains+Mono:wght@500;700&family=Figtree:wght@400;600&display=swap">
+<style>
+/* Seed City Arcade: the same dark neon as the games; one party, pick a cabinet */
+:root{
+  color-scheme:dark;
+  --bg:#02030a; --panel:rgba(6,10,20,.84); --line:rgba(120,220,255,.22); --fg:#eaf6ff; --muted:#8aa0b4;
+  --cyan:#33d9ff; --amber:#ffb45e; --magenta:#ff4fbf;
+  --f-display:"Michroma",system-ui,sans-serif; --f-data:"JetBrains Mono",ui-monospace,monospace; --f-body:"Figtree",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--f-body);-webkit-tap-highlight-color:transparent}
+body{overflow-y:auto}
+#bg{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+main{position:relative;z-index:1;min-height:100%;display:grid;place-items:center;padding:calc(env(safe-area-inset-top,0px) + 24px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px))}
+.card{width:min(560px,100%);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;gap:16px}
+.kicker{font:700 11px/1 var(--f-data);letter-spacing:.22em;color:var(--cyan);margin:0}
+.title{font:400 34px/1.08 var(--f-display);letter-spacing:.04em;margin:0;text-shadow:0 0 18px rgba(51,217,255,.55);text-wrap:balance}
+.sub{font:14px/1.5 var(--f-body);color:var(--muted);margin:0}
+.big{font:700 52px/1 var(--f-data);letter-spacing:.18em;text-align:center;text-shadow:0 0 16px rgba(51,217,255,.6)}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;padding:13px 16px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);display:grid;gap:3px}
+.btn b{font:600 16px/1.2 var(--f-body)}
+.btn span{font:12px/1.35 var(--f-body);color:var(--muted)}
+.btn:hover{border-color:var(--cyan);background:rgba(51,217,255,.12)}
+.btn:focus-visible,.cab:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.btn.small{padding:10px 14px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.code{box-sizing:border-box;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--fg);font:700 22px/1 var(--f-data);letter-spacing:.35em;text-align:center;text-transform:uppercase}
+.code:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.code::placeholder{color:var(--muted);letter-spacing:.2em;font-size:13px}
+.label{font:700 10px/1 var(--f-data);letter-spacing:.22em;color:var(--muted);margin:4px 0 -6px}
+.cabs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cab{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.3);display:grid;gap:8px;padding:0 0 14px;overflow:hidden;text-decoration:none;color:inherit;transition:transform .15s,border-color .15s}
+.cab:hover{border-color:var(--c);transform:translateY(-2px)}
+.cab svg{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100%;background:#050a16}
+.cab b{font:400 15px/1.2 var(--f-display);letter-spacing:.05em;padding:0 14px;color:var(--c);text-shadow:0 0 12px var(--c)}
+.cab span{font:12px/1.4 var(--f-body);color:var(--muted);padding:0 14px}
+.cab.off{opacity:.45;pointer-events:none}
+.roster{display:grid;gap:8px}
+.pl{display:flex;align-items:center;gap:10px;font:600 14px/1 var(--f-data);letter-spacing:.08em}
+.chip{width:12px;height:12px;border-radius:50%;box-shadow:0 0 10px currentColor;background:currentColor}
+.tag{font:500 10px/1 var(--f-data);color:var(--muted);letter-spacing:.14em}
+.status{font:600 12px/1.4 var(--f-data);letter-spacing:.12em;color:var(--amber);text-align:center}
+@media (max-width:460px){ .cabs{grid-template-columns:1fr} .title{font-size:28px} .big{font-size:44px} }
+@media (prefers-reduced-motion: reduce){ .cab{transition:none} .title,.big{text-shadow:none} }
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<main><div class="card" id="card" role="region" aria-label="Seed City Arcade"></div></main>
+<script>
+(() => {
+'use strict';
+/* =====================================================================
+   SEED CITY ARCADE
+   A party lobby that moves between games. Everyone joins one room code
+   here; the host picks a game and the whole room goes there together:
+   the host re-opens the same code in that game (#host=CODE&arcade), the
+   others join it (#room=CODE&arcade&wait, retrying while it opens). Each
+   game's lobby has "Back to arcade", which brings everyone back here.
+   Networking is the same PeerJS star as the games, ids "seedarcade-<CODE>".
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const GAMES = {
+  cycles: {name: 'Neon Cycles', blurb: 'Leave a wall of light. Outlast everyone.', color: '#33d9ff'},
+  sumo: {name: 'Neon Sumo', blurb: 'Knock everyone off a shrinking platform.', color: '#ff4fbf'},
+};
+const COLORS = ['#33d9ff', '#ffb45e', '#ff4fbf', '#8dff4a', '#a98bff', '#ff4b3e'];
+const PREFIX = 'seedarcade-', PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', MAX = 6, TIMEOUT = window.NEONSUMO_TIMEOUT || 8;
+let page = 'home', net = null, roster = [], myId = 'p0', err = '', status = '', lastCode = '', copied = false, going = null;
+
+/* ---------- small pictures of each cabinet ---------- */
+const art = {
+  cycles: '<svg viewBox="0 0 160 90" aria-hidden="true"><defs><filter id="gc"><feGaussianBlur stdDeviation="1.6"/></filter></defs>' +
+    '<g stroke="#1a3a66" stroke-width=".6">' + Array.from({length: 9}, (_, i) => '<line x1="' + (i*20) + '" y1="0" x2="' + (i*20) + '" y2="90"/>').join('') + Array.from({length: 5}, (_, i) => '<line x1="0" y1="' + (i*22 + 2) + '" x2="160" y2="' + (i*22 + 2) + '"/>').join('') + '</g>' +
+    '<g fill="none" stroke-width="2.4" stroke-linejoin="round"><polyline points="10,70 60,70 60,30 110,30 110,52" stroke="#33d9ff" filter="url(#gc)"/><polyline points="10,70 60,70 60,30 110,30 110,52" stroke="#bff3ff" stroke-width="1"/>' +
+    '<polyline points="150,18 90,18 90,60 130,60" stroke="#ffb45e" filter="url(#gc)"/><polyline points="150,18 90,18 90,60 130,60" stroke="#ffe3c2" stroke-width="1"/></g>' +
+    '<circle cx="110" cy="54" r="3" fill="#fff"/><circle cx="132" cy="60" r="3" fill="#fff"/></svg>',
+  sumo: '<svg viewBox="0 0 160 90" aria-hidden="true"><defs><filter id="gs"><feGaussianBlur stdDeviation="2"/></filter><radialGradient id="fl"><stop offset="0" stop-color="#0b1830"/><stop offset="1" stop-color="#050a16"/></radialGradient></defs>' +
+    '<ellipse cx="80" cy="52" rx="62" ry="26" fill="url(#fl)" stroke="#33d9ff" stroke-width="1.6"/><ellipse cx="80" cy="52" rx="62" ry="26" fill="none" stroke="#33d9ff" stroke-width="3" filter="url(#gs)" opacity=".7"/>' +
+    '<ellipse cx="80" cy="52" rx="40" ry="17" fill="none" stroke="#1a3a66"/><ellipse cx="80" cy="52" rx="20" ry="8.5" fill="none" stroke="#1a3a66"/>' +
+    '<circle cx="64" cy="46" r="9" fill="#0a0f1c" stroke="#ff4fbf" stroke-width="2"/><circle cx="64" cy="46" r="12" fill="#ff4fbf" opacity=".25" filter="url(#gs)"/>' +
+    '<circle cx="96" cy="54" r="9" fill="#0a0f1c" stroke="#8dff4a" stroke-width="2"/><circle cx="96" cy="54" r="12" fill="#8dff4a" opacity=".25" filter="url(#gs)"/>' +
+    '<path d="M75 49 l6 2 M76 53 l5 -1" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="140" cy="20" r="6" fill="#0a0f1c" stroke="#ffb45e" stroke-width="1.6" opacity=".8"/></svg>',
+};
+
+/* ---------- pages ---------- */
+function show(p){
+  page = p;
+  const c = $('#card');
+  const cab = (g, attrs) => '<' + (attrs.href ? 'a href="' + attrs.href + '"' : 'button data-go="' + g + '"') + ' class="cab' + (attrs.off ? ' off' : '') + '" style="--c:' + GAMES[g].color + '">' + art[g] + '<b>' + GAMES[g].name + '</b><span>' + (attrs.note || GAMES[g].blurb) + '</span></' + (attrs.href ? 'a' : 'button') + '>';
+  if (p === 'home'){
+    c.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><h1 class="title">One room. Every game.</h1>' +
+      '<p class="sub">Get your friends into one party here. The host picks a game and everyone goes together, then comes back to pick the next one. Nobody has to swap codes.</p>' +
+      '<button class="btn" data-id="host"><b>Start a party</b><span>Get a code to share (up to ' + MAX + ' players)</span></button>' +
+      '<input class="code" id="code" maxlength="4" placeholder="PARTY CODE" autocomplete="off" spellcheck="false" aria-label="Party code" value="' + lastCode + '">' +
+      '<button class="btn" data-id="join"><b>Join a party</b><span>Type the host’s four-letter code above</span></button>' +
+      '<p class="label">PLAY SOLO</p><div class="cabs">' + cab('cycles', {href: '../cycles/'}) + cab('sumo', {href: '../sumo/'}) + '</div>';
+    const code = $('#code');
+    code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); lastCode = code.value; });
+    code.addEventListener('keydown', e => { if (e.key === 'Enter') join(code.value); });
+  } else if (p === 'wait'){
+    c.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><p class="sub">' + status + '</p><button class="btn small" data-id="home"><b>Cancel</b></button>';
+  } else if (p === 'err'){
+    c.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><p class="sub">' + err + '</p><button class="btn small" data-id="home"><b>Back</b></button>';
+  } else if (p === 'party'){
+    const host = net && net.role === 'host';
+    c.innerHTML = '<p class="kicker">PARTY</p><div class="big">' + (net ? net.code : '') + '</div>' +
+      (host ? '<button class="btn small" data-id="copy"><b>' + (copied ? 'Link copied' : 'Copy invite link') + '</b><span>Opens the arcade straight into this party</span></button>' : '') +
+      '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:' + COLORS[q.c % COLORS.length] + '"></span>' + (q.id === myId ? 'YOU' : 'PLAYER ' + (roster.indexOf(q) + 1)) + (q.id === 'p0' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>' +
+      (going ? '<p class="status">HEADING TO ' + GAMES[going].name.toUpperCase() + '…</p>'
+        : host ? '<p class="label">PICK A GAME FOR EVERYONE</p><div class="cabs">' + cab('cycles', {}) + cab('sumo', {}) + '</div>'
+               : '<p class="sub">You’re in. The host picks the game, and you’ll go there automatically.</p>') +
+      '<button class="btn small" data-id="leave"><b>Leave party</b></button>';
+  }
+}
+$('#card').addEventListener('click', e => {
+  const g = e.target.closest('[data-go]');
+  if (g && net && net.role === 'host' && !going) return pick(g.dataset.go);
+  const b = e.target.closest('.btn'); if (!b) return;
+  const id = b.dataset.id;
+  if (id === 'host') host(0);
+  else if (id === 'join') join($('#code').value);
+  else if (id === 'home' || id === 'leave'){ leave(); show('home'); }
+  else if (id === 'copy'){
+    const u = location.href.split('#')[0] + '#room=' + net.code;
+    const done = () => { copied = true; show('party'); };
+    try{ navigator.clipboard.writeText(u).then(done, () => prompt('Copy this invite link:', u)); }catch(_){ prompt('Copy this invite link:', u); }
+  }
+});
+
+/* ---------- networking: PeerJS star, the same as the games ---------- */
+function loadPeerJS(){
+  return new Promise((res, rej) => {
+    const ready = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+    if (ready()) return res(ready());
+    const s = document.createElement('script'); s.src = PEERJS;
+    s.onload = () => ready() ? res(ready()) : rej(new Error('the networking library did not start'));
+    s.onerror = () => rej(new Error('could not download the networking library (check your connection)'));
+    document.head.appendChild(s);
+  });
+}
+const opts = () => window.NEONSUMO_PEER_OPTS || {debug: 0};
+const newCode = () => { const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random()*A.length)]; return c; };
+function fail(text){ leave(); err = text; show('err'); }
+function leave(){ going = null; if (!net) return; const n = net; net = null; try{ n.peer.destroy(); }catch(_){} roster = []; }
+function send(m){
+  if (!net) return;
+  if (net.role === 'host'){ for (const c of net.conns.keys()) if (c.open) c.send(m); }
+  else if (net.conn && net.conn.open) net.conn.send(m);
+}
+function freeColor(){ for (let c = 0; c < COLORS.length; c++) if (!roster.some(q => q.c === c)) return c; return roster.length % COLORS.length; }
+async function host(attempt, fixed){
+  leave(); status = 'Opening a party…'; show('wait');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return fail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'wait') return;
+  const code = fixed || newCode(), peer = new P(PREFIX + code, opts());
+  net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
+  const me = net;
+  peer.on('open', () => { if (net !== me) return; myId = 'p0'; roster = [{id: 'p0', c: 0}]; copied = false; show('party'); });
+  peer.on('connection', conn => {
+    conn.on('data', d => recv(d, conn));
+    conn.on('close', () => drop(conn));
+    conn.on('error', () => drop(conn));
+  });
+  peer.on('disconnected', () => { try{ if (!peer.destroyed) peer.reconnect(); }catch(_){} });
+  peer.on('error', e => {
+    if (net !== me) return;
+    if (e.type === 'unavailable-id' && fixed && (attempt || 0) < 8){ try{ peer.destroy(); }catch(_){} return setTimeout(() => { if (net === me) host((attempt || 0) + 1, fixed); }, 1000); }
+    if (e.type === 'unavailable-id' && (attempt || 0) < 4) return host((attempt || 0) + 1);
+    if (page !== 'party') fail('Couldn’t open a party (' + (e.type || 'error') + '). Try again in a moment.');
+  });
+}
+async function join(code, attempt, wait){
+  code = String(code || '').trim().toUpperCase(); lastCode = code;
+  if (!/^[A-Z0-9]{4}$/.test(code)){ err = 'Party codes are four letters or digits.'; show('err'); return; }
+  leave(); status = 'Joining party ' + code + '…'; show('wait');
+  let P; try{ P = await loadPeerJS(); }catch(e){ return fail('Couldn’t start online play: ' + e.message + '.'); }
+  if (page !== 'wait') return;
+  const peer = new P(opts());
+  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false};
+  const me = net;
+  peer.on('open', () => {
+    if (net !== me) return;
+    const conn = peer.connect(PREFIX + code, {reliable: true, serialization: 'json'});
+    me.conn = conn;
+    conn.on('open', () => conn.send({t: 'hello'}));
+    conn.on('data', d => recv(d, conn));
+    conn.on('close', () => { if (net === me && !going) fail(me.joined ? 'The host closed the party.' : 'The party closed before you got in.'); });
+    conn.on('error', () => { if (net === me && !going) fail('The connection to the host failed.'); });
+  });
+  peer.on('error', e => {
+    if (net !== me) return;
+    if (e.type === 'peer-unavailable' && wait && (attempt || 0) < 12){ setTimeout(() => { if (net === me) join(code, (attempt || 0) + 1, wait); }, 1500); return; }
+    if (e.type === 'peer-unavailable') fail('No party called ' + code + '. Check the code with the host.');
+    else fail('Connection problem (' + (e.type || 'error') + ').');
+  });
+  setTimeout(() => { if (net === me && !me.joined) fail('Couldn’t reach party ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
+}
+function drop(conn){
+  if (!net || net.role !== 'host') return;
+  const info = net.conns.get(conn); if (!info) return;
+  net.conns.delete(conn); try{ conn.close(); }catch(_){}
+  roster = roster.filter(q => q.id !== info.id);
+  send({t: 'roster', roster}); if (page === 'party') show('party');
+}
+function recv(d, conn){
+  if (!net || !d || typeof d !== 'object') return;
+  const now = performance.now()/1000;
+  if (net.role === 'host'){
+    if (d.t === 'hello'){
+      if (roster.length >= MAX){ conn.send({t: 'full'}); setTimeout(() => { try{ conn.close(); }catch(_){} }, 300); return; }
+      const id = 'p' + (net.nextId++);
+      net.conns.set(conn, {id, last: now});
+      roster.push({id, c: freeColor()});
+      conn.send({t: 'welcome', id, roster, going});
+      send({t: 'roster', roster}); show('party');
+      return;
+    }
+    const info = net.conns.get(conn); if (info) info.last = now;
+  } else {
+    net.hostLast = now;
+    if (d.t === 'welcome'){ net.joined = true; myId = d.id; roster = d.roster; show('party'); if (d.going) go(d.going); return; }
+    if (d.t === 'roster'){ roster = d.roster; if (page === 'party') show('party'); return; }
+    if (d.t === 'full') return fail('That party is full (' + MAX + ' players).');
+    if (d.t === 'go') return go(d.g);
+  }
+}
+// host picks a game: tell everyone, then re-open the same code inside that game
+function pick(g){ going = g; send({t: 'go', g}); show('party'); setTimeout(() => { location.href = '../' + g + '/#host=' + net.code + '&arcade'; }, 400); }
+function go(g){ if (!GAMES[g]) return; going = g; show('party'); location.href = '../' + g + '/#room=' + net.code + '&arcade&wait'; }
+setInterval(() => {
+  if (!net) return;
+  const now = performance.now()/1000;
+  send({t: 'ping'});
+  if (net.role === 'host'){ for (const [c, info] of [...net.conns]) if (now - info.last > TIMEOUT) drop(c); }
+  else if (net.joined && !going && now - net.hostLast > TIMEOUT) fail('Lost the connection to the host.');
+}, 1000);
+addEventListener('pagehide', () => { if (net && !going) leave(); });
+
+/* ---------- background: a slow neon grid running toward the horizon ---------- */
+const cv = $('#bg'), g2 = cv.getContext('2d');
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function drawBg(t){
+  const w = cv.width = innerWidth*Math.min(devicePixelRatio || 1, 2), h = cv.height = innerHeight*Math.min(devicePixelRatio || 1, 2);
+  g2.fillStyle = '#02030a'; g2.fillRect(0, 0, w, h);
+  const hz = h*0.42, glow = g2.createLinearGradient(0, hz - h*0.25, 0, hz + 4);
+  glow.addColorStop(0, 'rgba(255,79,191,0)'); glow.addColorStop(1, 'rgba(255,79,191,.18)');
+  g2.fillStyle = glow; g2.fillRect(0, hz - h*0.25, w, h*0.25 + 4);
+  g2.strokeStyle = 'rgba(51,217,255,.35)'; g2.lineWidth = Math.max(1, w/1400);
+  const cx = w/2;
+  for (let i = -24; i <= 24; i++){ g2.beginPath(); g2.moveTo(cx + i*w*0.012, hz); g2.lineTo(cx + i*w*0.16, h); g2.stroke(); }
+  const off = still ? 0 : (t/1000*0.35) % 1;
+  for (let k = 0; k < 18; k++){
+    const z = (k + off)/18, y = hz + (h - hz)*Math.pow(z, 2.2);
+    g2.globalAlpha = Math.min(1, z*1.6); g2.beginPath(); g2.moveTo(0, y); g2.lineTo(w, y); g2.stroke();
+  }
+  g2.globalAlpha = 1;
+  if (!still) requestAnimationFrame(drawBg);
+}
+requestAnimationFrame(drawBg);
+
+/* ---------- arriving: from an invite link, or back from a game ---------- */
+show('home');
+const hh = /host=([A-Za-z0-9]{4})/.exec(location.hash), hr = /room=([A-Za-z0-9]{4})/.exec(location.hash), wait = /(^|[#&])wait(&|$)/.test(location.hash);
+if (hh || hr) try{ history.replaceState(null, '', location.pathname); }catch(_){}
+if (hh) host(0, hh[1].toUpperCase());
+else if (hr) join(hr[1], 0, wait);
+window.__arcade = {page: () => page, code: () => net && net.code, role: () => net && net.role, roster: () => roster};
+})();
+</script>
+</body>
+</html>

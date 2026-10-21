@@ -8,6 +8,7 @@ An endless, procedurally generated city that grows from a single number. Every t
 | --- | --- |
 | `index.html` | **VR build.** Open it in the Meta Quest browser and press **Enter VR**. Also runs as a flat preview on any computer. |
 | `cycles/` | **Neon Cycles**, a separate light-cycle arena game (solo against bots, or online with room codes). |
+| `arcade/` | **Seed City Arcade**, a party lobby: friends join one code, the host picks a game, and everyone moves between Neon Cycles and Neon Sumo together. |
 | `sumo/` | **Neon Sumo**, bumper sumo on a shrinking neon platform (solo against bots, or online with room codes). |
 | `desktop.html` | **Full desktop build.** HDR bloom, rain with wet-street reflections, car reflections, chase and cockpit views. |
 
@@ -15,6 +16,7 @@ Once GitHub Pages is on, the links are:
 
 - Neon Cycles: `https://bootleg714.github.io/seed-city/cycles/`
 - Neon Sumo: `https://bootleg714.github.io/seed-city/sumo/`
+- Arcade: `https://bootleg714.github.io/seed-city/arcade/`
 
 - VR: `https://bootleg714.github.io/seed-city/`
 - Desktop: `https://bootleg714.github.io/seed-city/desktop.html`
@@ -28,6 +30,10 @@ A menu floats over the live city when you start (in VR, point a controller at it
 - **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
 - **Combat:** waves of interceptor drones circle you, climb over buildings and fire red bolts that lead your movement (buildings block them). Your shield drops with each hit and recharges after a few seconds out of fire; at zero you're shot down. Each wave adds drones that are faster and shoot more often; clearing one scores a bonus and restores some shield. Your lasers get a slight aim assist, the red arrow points to the nearest drone, and your best score per seed is saved.
 - **Dogfight (desktop, online):** fly against friends. One pilot picks **Host a room** and shares the four-letter code; the others type it in and pick **Join a room** (or open `desktop.html#room=CODE`). Everyone flies in the host's city, up to 6 pilots. Lasers chip away at shields, a red arrow points to the nearest pilot, and you respawn three seconds after being shot down. It is peer to peer through the free PeerJS service, so there is no server to run; some strict networks (some workplaces, schools or mobile hotspots) block direct connections.
+
+## Seed City Arcade
+
+A party lobby for playing the games together. One player picks **Start a party** and shares the code or invite link; friends join. The host picks a game and everyone goes there together, already in the same room: the host re-opens the same code inside the game, and everyone else joins it automatically (retrying for a few seconds while it opens). In the game's lobby, the host's **Back to arcade** button brings the whole room back to the party to pick the next game. The arcade uses PeerJS ids `seedarcade-<CODE>`; the games also accept `#host=CODE&arcade` and `#room=CODE&arcade&wait` links for this hand-off.
 
 ## Neon Sumo
 
