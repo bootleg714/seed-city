@@ -633,10 +633,16 @@ function enginesUpdate(){
 }
 // title music (DC v0.5): plays on the menus, stops when a match starts, starts from the intro again next time
 const music = new Audio('title_music.mp3'); music.loop = true; music.volume = 0.45; music.preload = 'none';
-let musicOn = false, musicWait = 0;
-function musicUpdate(){
+// Browsers only let sound start from inside a click or key press, so the first start happens in the
+// input handler (musicUpdate(true)). If a browser still says no, wait for the next real click or key.
+let musicOn = false, musicWait = 0, musicBlocked = false;
+function musicUpdate(fromGesture){
   const want = soundOn && !$('#menu').hidden && page !== 'wait';
-  if (want && !musicOn && performance.now() > musicWait){ musicOn = true; try{ music.currentTime = 0; }catch(_){} const p = music.play(); if (p && p.catch) p.catch(() => { musicOn = false; musicWait = performance.now() + 3000; }); }
+  if (want && !musicOn && (fromGesture || !musicBlocked) && performance.now() > musicWait){
+    musicOn = true; try{ music.currentTime = 0; }catch(_){}
+    const p = music.play();
+    if (p && p.then) p.then(() => { musicBlocked = false; }, e => { musicOn = false; if (e && e.name === 'NotAllowedError') musicBlocked = true; else musicWait = performance.now() + 3000; });
+  }
   else if (!want && musicOn){ musicOn = false; music.pause(); }
 }
 const sfxWin = () => { tone(523,0.18,'triangle',0.08,0,0); tone(659,0.18,'triangle',0.08,0,0.15); tone(784,0.18,'triangle',0.08,0,0.3); tone(1046,0.5,'triangle',0.08,0,0.45); };
@@ -1186,7 +1192,7 @@ function menuAction(id){
   if (id === 'solo' || id === 'again') startSolo();
   else if (id === 'botsless'){ soloBots = Math.max(1, soloBots - 1); showPage('main'); }
   else if (id === 'botsmore'){ soloBots = Math.min(MAX_RIDERS - 1, soloBots + 1); showPage('main'); }
-  else if (id === 'sound'){ soundOn = !soundOn; if (!soundOn) engineSet(false, BASE_SPEED); showPage('main'); }
+  else if (id === 'sound'){ soundOn = !soundOn; if (!soundOn) engineSet(false, BASE_SPEED); showPage('main'); musicUpdate(true); }
   else if (id === 'host') netHost(0);
   else if (id === 'arenaprev' || id === 'arenanext'){
     arenaSel = (arenaSel + 1 + (id === 'arenaprev' ? -1 : 1) + ARENAS.length + 1) % (ARENAS.length + 1) - 1;
@@ -1438,7 +1444,7 @@ function gpUpdate(dt){
   for (let i=0;i<g.buttons.length;i++) gpPrev[i] = down(i);
 }
 let userGestured = false;
-for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { userGestured = true; audio(); }, {capture: true});
+for (const ev of ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click']) window.addEventListener(ev, () => { userGestured = true; audio(); musicUpdate(true); }, {capture: true});
 window.addEventListener('gamepadconnected', () => { gpOn = true; updateHint(); });
 
 /* ---------- frame loop ---------- */
