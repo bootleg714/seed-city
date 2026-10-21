@@ -48,6 +48,12 @@ a.back:hover{color:var(--fg)}
 #board .pl.dead{opacity:.35}
 #board .wins{margin-left:auto;padding-left:14px;font-variant-numeric:tabular-nums}
 #msg{position:fixed;left:50%;top:36%;transform:translate(-50%,-50%);text-align:center;font:400 44px/1.1 var(--f-display);letter-spacing:.06em;text-shadow:0 0 24px rgba(51,217,255,.7);white-space:nowrap}
+#feed{position:fixed;top:calc(env(safe-area-inset-top,0px) + 54px);right:16px;display:grid;gap:6px;justify-items:end}
+#feed div{font:600 12px/1 var(--f-data);letter-spacing:.1em;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px;transition:opacity .6s}
+#feed div.fade{opacity:0}
+#feed b{font-weight:700;text-shadow:0 0 8px currentColor}
+#board .ko{margin-left:auto;padding-left:14px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#board .ko + .wins{margin-left:0;padding-left:10px}
 #msg small{display:block;font:600 14px/1.5 var(--f-data);letter-spacing:.2em;color:var(--muted);text-shadow:none;margin-top:8px}
 #hint{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);left:50%;transform:translateX(-50%);font:12px/1.4 var(--f-body);color:var(--muted);white-space:nowrap;pointer-events:none}
 #hint kbd{font:600 11px/1 var(--f-data);border:1px solid var(--line);border-radius:4px;padding:2px 5px;color:var(--fg)}
@@ -60,7 +66,7 @@ a.back:hover{color:var(--fg)}
 #stickhint{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);font:600 11px/1.4 var(--f-data);letter-spacing:.16em;color:var(--muted)}
 #tdash{all:unset;pointer-events:auto;position:fixed;right:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);width:108px;height:108px;border-radius:50%;border:1px solid var(--line);background:rgba(6,10,20,.5);display:grid;place-items:center;font:700 15px/1 var(--f-data);letter-spacing:.16em;color:var(--muted)}
 #tdash.ready{border-color:var(--amber);color:#fff;box-shadow:0 0 18px rgba(255,180,94,.45);background:rgba(255,180,94,.18)}
-@media (max-width:640px){ #round{left:auto;right:10px;transform:none;font-size:10px;padding:6px 10px} #msg{font-size:30px} }
+@media (max-width:640px){ #feed{top:calc(env(safe-area-inset-top,0px) + 46px);right:10px} #round{left:auto;right:10px;transform:none;font-size:10px;padding:6px 10px} #msg{font-size:30px} }
 @media (max-height:460px){ #hint{display:none} #dashbar{bottom:calc(env(safe-area-inset-bottom,0px) + 12px)} #board{gap:3px;padding:6px 10px} #board .pl{font-size:11px} }
 @media (prefers-reduced-motion: reduce){ .title,#msg{text-shadow:none} }
 </style>
@@ -71,6 +77,7 @@ a.back:hover{color:var(--fg)}
   <div id="round"></div>
   <div id="board"></div>
   <div id="msg"></div>
+  <div id="feed" aria-live="polite"></div>
   <div id="dashbar"><i></i></div>
 </div>
 <div id="hint"></div>
@@ -235,12 +242,15 @@ const sfx = {
   fall(){ tone(520, 70, 0.9, 'triangle', 0.18); },
   out(){ noise(0.5, 400, 0.35); },
   beep(hi){ tone(hi ? 880 : 440, hi ? 880 : 440, hi ? 0.35 : 0.14, 'square', 0.07); },
+  final(){ tone(110, 38, 1.6, 'sine', 0.55); noise(1.2, 220, 0.4); tone(660, 220, 1.2, 'triangle', 0.06, 0.05); },
   win(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, f, 0.3, 'triangle', 0.12, i*0.1)); },
 };
 
 /* ---------- game state ---------- */
 let mode = 'menu';           // menu | solo | online
 let state = 'idle';          // idle | lobby | countdown | run | over | match
+let kos = {}, finalSent = false, slow = 0, camZoom = 0;
+const slowFocus = new THREE.Vector3();
 let myId = 'p0', roster = [], scores = {}, round = 0, R = R0, tRun = 0, cdLeft = 0, overT = 0, matchT = 0, lastWinner = null;
 let page = 'main', netErr = '', netStatus = '', lastCode = '', copied = false, nextBot = 1;
 const riders = new Map();
@@ -309,12 +319,18 @@ function authStep(dt){
   for (const r of live){ if (r.bot) botThink(r, dt); stepBall(r, dt, state === 'run'); }
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++){
     const s = collide(live[i], live[j], false);
+    if (s > 1.5){ live[i].lastHit = {id: live[j].id, t: tRun}; live[j].lastHit = {id: live[i].id, t: tRun}; }   // who to credit if this ball goes over
     if (s > 3 && bumpGate <= 0){ bumpGate = 0.06; emit({t: 'bump', x: +((live[i].x + live[j].x)/2).toFixed(2), z: +((live[i].z + live[j].z)/2).toFixed(2), s: +s.toFixed(1), a: live[i].id, b: live[j].id}); }
   }
   bumpGate -= dt;
   for (const r of live){
-    if (!r.falling && Math.hypot(r.x, r.z) > R){ r.falling = true; r.vy = 0; }
-    if (r.falling && r.y < -14) emit({t: 'out', id: r.id});
+    if (!r.falling && Math.hypot(r.x, r.z) > R){
+      r.falling = true; r.vy = 0;
+      r.fallBy = r.lastHit && tRun - r.lastHit.t < 3 && riders.has(r.lastHit.id) ? r.lastHit.id : null;
+      // the fall that decides the round gets the slow-motion finish
+      if (state === 'run' && !finalSent && roster.length > 1 && live.filter(o => !o.falling).length <= 1){ finalSent = true; emit({t: 'final', id: r.id, x: +r.x.toFixed(2), z: +r.z.toFixed(2)}); }
+    }
+    if (r.falling && r.y < -14) emit({t: 'out', id: r.id, by: r.fallBy || null});
   }
 }
 
@@ -393,11 +409,13 @@ function apply(m){
       drawBoard();
       break;
     case 'round':
-      round = m.n; scores = m.scores || scores; R = R0; tRun = 0; cdLeft = 3; state = 'countdown';
+      round = m.n; scores = m.scores || scores; R = R0; tRun = 0; cdLeft = 3; state = 'countdown'; finalSent = false; slow = 0;
+      if (m.n === 1) kos = {};
+      $('#feed').innerHTML = '';
       for (const r of riders.values()){ r.inRound = false; r.alive = false; r.mesh.g.visible = false; }
       for (const [id, x, z] of m.s){
         const r = riders.get(id); if (!r) continue;
-        Object.assign(r, {x, z, vx: 0, vz: 0, y: 0, vy: 0, alive: true, falling: false, wasFalling: false, inRound: true, dashCd: 0, sx: x, sz: z, svx: 0, svz: 0, sy: 0, st: now, dx: x, dz: z, dy: 0});
+        Object.assign(r, {lastHit: null, fallBy: null, x, z, vx: 0, vz: 0, y: 0, vy: 0, alive: true, falling: false, wasFalling: false, inRound: true, dashCd: 0, sx: x, sz: z, svx: 0, svz: 0, sy: 0, st: now, dx: x, dz: z, dy: 0});
         r.inp.x = r.inp.z = 0; r.mesh.g.visible = true;
       }
       $('#hud').hidden = false; showPage(null); lastBeep = 4;
@@ -421,10 +439,17 @@ function apply(m){
       const r = riders.get(m.id); if (!r || !r.alive) break;
       r.alive = false; r.mesh.g.visible = false;
       burst(r.dx, Math.max(-12, r.dy), r.dz, colorOf(r.id), 40, 9); sfx.out();
-      if (m.id === myId){ flash('KNOCKED OUT', 'WATCH THE REST'); rumble(1, 1, 300); }
+      const by = m.by && roster.some(q => q.id === m.by) ? m.by : null;
+      if (by){ kos[by] = (kos[by] || 0) + 1; feed(tagName(by) + ' knocked off ' + tagName(m.id)); }
+      else feed(tagName(m.id) + (m.left ? ' left' : ' fell off'));
+      if (m.id === myId){ flash('KNOCKED OUT', by ? 'BY ' + nameOf(by).toUpperCase() : 'WATCH THE REST'); rumble(1, 1, 300); }
+      else if (by === myId){ rumble(0.6, 0.8, 200); }
       drawBoard();
       break;
     }
+    case 'final':
+      slow = 1.6; slowFocus.set(m.x, 0, m.z); sfx.final();
+      break;
     case 'win':
       scores = m.scores || scores; state = 'over'; overT = 3; lastWinner = m.id;
       if (m.id === myId){ flash('YOU WIN THE ROUND', score3()); sfx.win(); }
@@ -434,7 +459,7 @@ function apply(m){
       break;
     case 'match':
       state = 'match'; matchT = 5;
-      flash(m.id === myId ? 'YOU ARE THE CHAMPION' : nameOf(m.id).toUpperCase() + ' WINS', 'FIRST TO ' + WINS + ' ROUNDS');
+      flash(m.id === myId ? 'YOU ARE THE CHAMPION' : nameOf(m.id).toUpperCase() + ' WINS', topKO() || 'FIRST TO ' + WINS + ' ROUNDS');
       if (m.id === myId) sfx.win();
       break;
     case 'lobby':
@@ -445,6 +470,16 @@ function apply(m){
   }
 }
 function emit(m){ apply(m); netSend(m); }
+const tagName = id => '<b style="color:' + hex(colorOf(id)) + '">' + nameOf(id).toUpperCase() + '</b>';
+function feed(html){
+  const el = document.createElement('div'); el.innerHTML = html; $('#feed').prepend(el);
+  while ($('#feed').children.length > 4) $('#feed').lastChild.remove();
+  setTimeout(() => el.classList.add('fade'), 4000); setTimeout(() => el.remove(), 4700);
+}
+function topKO(){
+  let best = null; for (const q of roster) if ((kos[q.id] || 0) > (best ? kos[best] : 0)) best = q.id;
+  return best ? 'MOST KNOCKOUTS: ' + nameOf(best).toUpperCase() + ' (' + kos[best] + ')' : '';
+}
 const score3 = () => roster.map(q => (scores[q.id] || 0)).join(' · ');
 function dashFx(r){
   r.pulse = 1;
@@ -459,7 +494,7 @@ function flash(big, small){ $('#msg').innerHTML = big + (small ? '<small>' + sma
 function drawBoard(){
   $('#board').innerHTML = roster.map(q => {
     const r = riders.get(q.id), dead = r && r.inRound && !r.alive, spec = r && !r.inRound && (state === 'run' || state === 'countdown');
-    return '<div class="pl' + (dead || spec ? ' dead' : '') + '"><span class="chip" style="color:' + hex(COLORS[q.c % COLORS.length][1]) + '"></span>' + nameOf(q.id).toUpperCase() + '<span class="wins">' + (scores[q.id] || 0) + '</span></div>';
+    return '<div class="pl' + (dead || spec ? ' dead' : '') + '"><span class="chip" style="color:' + hex(COLORS[q.c % COLORS.length][1]) + '"></span>' + nameOf(q.id).toUpperCase() + '<span class="ko">' + (kos[q.id] || 0) + ' KO</span><span class="wins">' + (scores[q.id] || 0) + '</span></div>';
   }).join('');
   $('#round').textContent = 'ROUND ' + round + ' · FIRST TO ' + WINS + (mode === 'online' && net ? ' · ROOM ' + net.code : '');
 }
@@ -505,7 +540,8 @@ function showPage(p){
         : '<p class="sub">Waiting for the host to start…</p>') +
       '<button class="btn small" data-id="leave"><b>Leave room</b></button>';
   } else if (p === 'again'){
-    card.innerHTML = '<p class="kicker">MATCH OVER</p><h1 class="title">' + (lastWinner === myId ? 'CHAMPION' : 'BETTER LUCK') + '</h1>' + rosterHtml().replace(/<\/div><\/div>$/, '</div></div>') +
+    card.innerHTML = '<p class="kicker">MATCH OVER</p><h1 class="title">' + (lastWinner === myId ? 'CHAMPION' : 'BETTER LUCK') + '</h1>' +
+      '<div class="roster">' + [...roster].sort((x, y) => (scores[y.id] || 0) - (scores[x.id] || 0) || (kos[y.id] || 0) - (kos[x.id] || 0)).map(q => '<div class="pl"><span class="chip" style="color:' + hex(COLORS[q.c % COLORS.length][1]) + '"></span>' + nameOf(q.id).toUpperCase() + '<span class="tag" style="margin-left:auto">' + (scores[q.id] || 0) + ' WINS · ' + (kos[q.id] || 0) + ' KO</span></div>').join('') + '</div>' +
       '<button class="btn" data-id="solo"><b>Play again</b></button><button class="btn small" data-id="menu"><b>Menu</b></button>';
   }
   gpFocus = 0; gpMark();
@@ -617,7 +653,7 @@ function netDrop(conn){
   const info = net.conns.get(conn); if (!info) return;
   net.conns.delete(conn); try{ conn.close(); }catch(_){}
   const r = riders.get(info.id);
-  if (r && r.alive && (state === 'run' || state === 'countdown')) emit({t: 'out', id: info.id});
+  if (r && r.alive && (state === 'run' || state === 'countdown')) emit({t: 'out', id: info.id, left: 1});
   roster = roster.filter(q => q.id !== info.id); delete scores[info.id];
   emit({t: 'roster', roster, scores});
 }
@@ -630,7 +666,7 @@ function netRecv(d, conn){
       const id = 'p' + (net.nextId++);
       net.conns.set(conn, {id, last: now});
       roster.push({id, c: freeColor(), bot: false}); scores[id] = scores[id] || 0;
-      conn.send({t: 'welcome', id, roster, scores, state, round});
+      conn.send({t: 'welcome', id, roster, scores, kos, state, round});
       emit({t: 'roster', roster, scores});
       return;
     }
@@ -645,7 +681,7 @@ function netRecv(d, conn){
   } else {
     net.hostLast = now;
     if (d.t === 'welcome'){
-      net.joined = true; mode = 'online'; myId = d.id; roster = d.roster; scores = d.scores || {}; round = d.round || 0;
+      net.joined = true; mode = 'online'; myId = d.id; roster = d.roster; scores = d.scores || {}; kos = d.kos || {}; round = d.round || 0;
       syncRiders();
       if (d.state === 'lobby' || d.state === 'idle'){ state = 'lobby'; showPage('lobby'); }
       else { state = 'over'; $('#hud').hidden = false; showPage(null); flash('JOINED', 'YOU PLAY NEXT ROUND'); drawBoard(); }
@@ -797,6 +833,10 @@ addEventListener('resize', resize); resize();
 function frame(){
   requestAnimationFrame(frame);
   const now = performance.now()/1000; let dt = Math.min(0.1, now - prevT); prevT = now;
+  // slow motion: quarter speed for the deciding fall, easing back to full speed at the end
+  let ts = 1;
+  if (slow > 0){ slow = Math.max(0, slow - dt); ts = slow > 0.45 ? 0.22 : 0.22 + (0.45 - slow)/0.45*0.78; }
+  const gdt = dt*ts;
   gpUpdate(dt);
   if (leaveArm > 0) leaveArm -= dt;
   if (flashT > 0){ flashT -= dt; if (flashT <= 0 && state !== 'match') $('#msg').innerHTML = ''; }
@@ -811,7 +851,7 @@ function frame(){
   readInput();
   netTick(dt);
 
-  acc += dt;
+  acc += gdt;
   let steps = 0;
   while (acc >= STEP && steps < 6){
     acc -= STEP; steps++;
@@ -826,8 +866,8 @@ function frame(){
     }
   }
   if (steps === 6) acc = 0;
-  if (isAuth()) authTick(dt);
-  else if (state === 'run') tRun += dt;
+  if (isAuth()) authTick(gdt);
+  else if (state === 'run') tRun += gdt;
 
   // place every ball on screen
   const joiner = !isAuth();
@@ -837,14 +877,14 @@ function frame(){
     g.visible = true;
     const px = r.dx, pz = r.dz;
     if (joiner && (r.id !== myId || r.falling)){
-      const age = Math.min(0.25, now - r.st);
+      const age = Math.min(0.25, now - r.st)*ts;
       const tx = r.sx + r.svx*age, tz = r.sz + r.svz*age, k = 1 - Math.exp(-18*dt);
       r.dx += (tx - r.dx)*k; r.dz += (tz - r.dz)*k; r.dy += (r.sy - r.dy)*k;
     } else { r.dx = r.x; r.dz = r.z; r.dy = r.y; }
     g.position.set(r.dx, r.dy, r.dz);
     const mx = r.dx - px, mz = r.dz - pz, dist = Math.hypot(mx, mz);
     if (dist > 1e-4 && dist < 3){ axis.set(mz, 0, -mx).normalize(); r.mesh.ball.rotateOnWorldAxis(axis, dist/BALL); }
-    r.pulse = Math.max(0, r.pulse - dt*2.5);
+    r.pulse = Math.max(0, r.pulse - gdt*2.5);
     const s = 4.2 + r.pulse*3; r.mesh.halo.scale.set(s, s, 1);
     r.mesh.ball.material.emissiveIntensity = 1.1 + r.pulse*1.6;
     r.mesh.pad.visible = !r.falling && r.dy > -0.5;
@@ -857,14 +897,16 @@ function frame(){
   const warn = shrinking ? 0.5 + 0.5*Math.sin(now*8) : 0;
   rimMat.color.setHex(shrinking ? 0xff4fbf : 0x33d9ff).multiplyScalar(0.7 + warn*0.6);
   curtainMat.uniforms.col.value.setHex(shrinking ? 0xff4fbf : 0x33d9ff);
-  sparksUpdate(dt);
+  sparksUpdate(gdt);
 
   // camera: high and behind, leaning toward your ball, wider on portrait screens
   const me = riders.get(myId);
   const portrait = Math.max(1, 1.25/camera.aspect);
-  const fit = 0.65 + 0.35*(R/R0);
+  camZoom += ((slow > 0 ? 1 : 0) - camZoom)*(1 - Math.exp(-(slow > 0 ? 5 : 2)*dt));
+  const fit = (0.65 + 0.35*(R/R0))*(1 - 0.5*camZoom);
   const follow = me && me.inRound && me.alive && !me.falling ? 0.22 : 0;
-  camLook.lerp(new THREE.Vector3(me ? me.dx*follow : 0, 0, me ? me.dz*follow : 0), 1 - Math.exp(-3*dt));
+  const look = new THREE.Vector3(me ? me.dx*follow : 0, 0, me ? me.dz*follow : 0).lerp(slowFocus, camZoom);
+  camLook.lerp(look, 1 - Math.exp(-(3 + camZoom*6)*dt));
   camPos.set(camLook.x, 25*portrait*fit + 4, camLook.z + 21*portrait*fit + 3);
   camera.position.copy(camPos);
   if (shake > 0){ shake = Math.max(0, shake - dt*1.6); camera.position.x += (Math.random() - 0.5)*shake; camera.position.y += (Math.random() - 0.5)*shake; }
@@ -887,7 +929,7 @@ function frame(){
 }
 
 // expose a little state for automated tests
-window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get roster(){ return roster; }, get scores(){ return scores; }, get round(){ return round; }, get R(){ return R; }, get myId(){ return myId; },
+window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get roster(){ return roster; }, get scores(){ return scores; }, get round(){ return round; }, get R(){ return R; }, get myId(){ return myId; }, get kos(){ return kos; }, get slow(){ return slow; },
   riders: () => [...riders.values()].map(r => ({id: r.id, x: r.x, z: r.z, dx: r.dx, dz: r.dz, alive: r.alive, inRound: r.inRound, falling: r.falling})), page: () => page, net: () => net && {role: net.role, code: net.code}};
 
 addEventListener('pagehide', netLeave);   // tell the room right away when the tab closes

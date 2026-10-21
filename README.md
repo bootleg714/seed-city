@@ -31,7 +31,7 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 ## Neon Sumo
 
-Roll your ball into the others and knock them off the platform. The platform starts shrinking 6 seconds into each round, and a sudden-death shrink ends any round that drags on. Last ball on the platform takes the round; first to 3 wins.
+Roll your ball into the others and knock them off the platform. The platform starts shrinking 6 seconds into each round, and a sudden-death shrink ends any round that drags on. Last ball on the platform takes the round; first to 3 wins. Knock someone off within 3 seconds of hitting them and you get the knockout: it shows in the feed (top right) and in the KO column on the scoreboard, and the match ends with the most knockouts called out. The fall that decides each round plays in slow motion with the camera zoomed in.
 
 - **Keyboard:** WASD or arrows to roll, Space (or Shift) to dash, M for sound, Esc twice to leave
 - **Touch:** drag on the left side to roll, DASH button bottom right
