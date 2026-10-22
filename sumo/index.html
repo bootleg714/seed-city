@@ -215,12 +215,117 @@ function postsUpdate(dt){
 }
 
 // the void below: a far grid and drifting motes
+let motes;
 const voidGrid = new THREE.GridHelper(400, 80, 0x1a3a66, 0x0d1d36); voidGrid.position.y = -38; scene.add(voidGrid);
 {
   const n = 600, p = new Float32Array(n*3);
   for (let i = 0; i < n; i++){ const a = Math.random()*Math.PI*2, d = 22 + Math.random()*90; p[i*3] = Math.cos(a)*d; p[i*3+1] = -30 + Math.random()*55; p[i*3+2] = Math.sin(a)*d; }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({size: 0.6, map: glowTex, color: 0x3a7bd5, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending})));
+  scene.add(motes = new THREE.Points(g, new THREE.PointsMaterial({size: 0.6, map: glowTex, color: 0x3a7bd5, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending})));
+}
+
+/* ---------- experimental backdrop: the platform floats above a neon city ----------
+   Built the first time it's switched on. Towers are a few instanced box sizes whose
+   window textures repeat to match, so windows keep a steady size. Rooftop neon caps,
+   glowing streets and lanes of flying traffic sit below the platform. */
+const CITY_Y = -95;
+let city = null, backdrop = 'void';
+try{ if (localStorage.getItem('neonsumo-backdrop') === 'city') backdrop = 'city'; }catch(_){}
+function windowTex(){
+  return canvasTex(256, (g, s) => {
+    g.fillStyle = '#05070f'; g.fillRect(0, 0, s, s);
+    const cols = 8, rows = 8, cw = s/cols, rh = s/rows;
+    for (let x = 0; x < cols; x++) for (let y = 0; y < rows; y++){
+      const r = Math.random();
+      if (r < 0.42) continue;
+      g.fillStyle = r < 0.8 ? 'rgba(120,200,255,' + (0.35 + Math.random()*0.5) + ')' : r < 0.92 ? 'rgba(255,190,120,.8)' : 'rgba(255,90,200,.8)';
+      g.fillRect(x*cw + cw*0.2, y*rh + rh*0.25, cw*0.6, rh*0.45);
+    }
+  });
+}
+function buildCity(){
+  const grp = new THREE.Group();
+  const wtex = windowTex(); wtex.wrapS = wtex.wrapT = THREE.RepeatWrapping;
+  // ground with glowing avenues
+  const streets = canvasTex(512, (g, s) => {
+    g.fillStyle = '#04030c'; g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(255,79,191,.32)'; g.lineWidth = 2;
+    for (let i = 0; i <= 8; i++){ const v = i*s/8; g.beginPath(); g.moveTo(v, 0); g.lineTo(v, s); g.stroke(); g.beginPath(); g.moveTo(0, v); g.lineTo(s, v); g.stroke(); }
+  });
+  streets.wrapS = streets.wrapT = THREE.RepeatWrapping; streets.repeat.set(10, 10);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(480, 480).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({map: streets}));
+  ground.position.y = CITY_Y; grp.add(ground);
+  // towers: block grid of 12-unit lots on 6 x 6 blocks (streets every 6 lots line up with the ground's avenues)
+  const kinds = [[5, 18], [7, 30], [6, 46], [9, 24], [4, 62]];
+  const lots = kinds.map(() => []);
+  const LOT = 12;
+  for (let gx = -19; gx <= 19; gx++) for (let gz = -19; gz <= 19; gz++){
+    if (((gx % 5) + 5) % 5 === 0 || ((gz % 5) + 5) % 5 === 0) continue;   // leave the streets open
+    const x = gx*LOT, z = gz*LOT, d = Math.hypot(x, z);
+    if (d < 14 || d > 230 || Math.random() < 0.18) continue;
+    // tall towers further out; keep the towers near the platform low so the view stays clear
+    let k = Math.floor(Math.random()*kinds.length);
+    if (d < 90 && kinds[k][1] > 32) k = Math.random() < 0.5 ? 0 : 3;
+    lots[k].push([x + (Math.random() - 0.5)*3, z + (Math.random() - 0.5)*3]);
+  }
+  const roofs = [], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color();
+  const NEON = [0x33d9ff, 0xff4fbf, 0xffb45e, 0xa98bff, 0x8dff4a];
+  kinds.forEach(([wd, ht], k) => {
+    const geo = new THREE.BoxGeometry(wd, ht, wd).translate(0, ht/2, 0);
+    const uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*wd/16, uv.getY(i)*ht/16);   // one texture (8 x 8 windows) per 16 units: a window every 2 units
+    const mat = new THREE.MeshStandardMaterial({color: 0x0b1020, map: wtex, emissive: 0xffffff, emissiveMap: wtex, emissiveIntensity: 0.9, roughness: 0.6, metalness: 0.3});
+    const im = new THREE.InstancedMesh(geo, mat, lots[k].length);
+    lots[k].forEach(([x, z], i) => {
+      const hs = 0.75 + Math.random()*0.5;
+      sc.set(1, hs, 1); pos.set(x, CITY_Y, z); m4.compose(pos, q.identity(), sc); im.setMatrixAt(i, m4);
+      if (Math.random() < 0.22) roofs.push([x, CITY_Y + ht*hs, z, wd]);
+    });
+    grp.add(im);
+  });
+  // neon rooftop rims
+  const rimGeo = new THREE.TorusGeometry(0.7, 0.025, 4, 4).rotateX(Math.PI/2).rotateY(Math.PI/4);
+  const rims = new THREE.InstancedMesh(rimGeo, new THREE.MeshBasicMaterial({color: 0xffffff}), roofs.length);
+  roofs.forEach(([x, y, z, wd], i) => { const s2 = wd*0.98; m4.compose(pos.set(x, y + 0.1, z), q.identity(), sc.set(s2, 1, s2)); rims.setMatrixAt(i, m4); rims.setColorAt(i, col.setHex(NEON[i % NEON.length])); });
+  grp.add(rims);
+  // flying traffic: glowing dots on straight lanes over the avenues
+  const N = 260, tp = new Float32Array(N*3), tc = new Float32Array(N*3), lanes = [];
+  for (let i = 0; i < N; i++){
+    const alongX = Math.random() < 0.5, line = (Math.floor(Math.random()*16) - 8)*5*LOT, y = CITY_Y + 22 + Math.random()*36;
+    lanes.push({alongX, line: line + (Math.random() < 0.5 ? -2 : 2), y, s: (Math.random() < 0.5 ? -1 : 1)*(14 + Math.random()*20), t: (Math.random() - 0.5)*460});
+    col.setHex(Math.random() < 0.6 ? 0xff5050 : 0xfff2d0); if (Math.random() < 0.15) col.setHex(0x33d9ff);
+    tc[i*3] = col.r; tc[i*3+1] = col.g; tc[i*3+2] = col.b;
+  }
+  const tg = new THREE.BufferGeometry(); for (const l of lanes) l.y = CITY_Y + 40 + Math.random()*30; tg.setAttribute('position', new THREE.BufferAttribute(tp, 3)); tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+  const traffic = new THREE.Points(tg, new THREE.PointsMaterial({size: 1.6, map: glowTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending}));
+  grp.add(traffic);
+  // the platform's underside: a soft beam of light pouring down from the hover engines
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 1.05, 1, 64, 1, true).translate(0, -0.5, 0), new THREE.ShaderMaterial({transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: {col: {value: new THREE.Color(0x33d9ff)}},
+    vertexShader: 'varying float h; void main(){ h = -position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 col; varying float h; void main(){ gl_FragColor = vec4(col * pow(1.0 - h, 3.0) * 0.22, 1.0); }'}));
+  scene.add(beam);
+  return {grp, lanes, traffic, beam};
+}
+function cityUpdate(dt){
+  if (!city || !city.grp.visible) return;
+  const p = city.traffic.geometry.attributes.position.array;
+  city.lanes.forEach((l, i) => {
+    l.t += l.s*dt; if (l.t > 230) l.t -= 460; if (l.t < -230) l.t += 460;
+    p[i*3] = l.alongX ? l.t : l.line; p[i*3+1] = l.y; p[i*3+2] = l.alongX ? l.line : l.t;
+  });
+  city.traffic.geometry.attributes.position.needsUpdate = true;
+  city.beam.scale.set(R, 26, R); city.beam.position.y = -1.4;
+}
+function setBackdrop(b){
+  backdrop = b;
+  try{ localStorage.setItem('neonsumo-backdrop', b); }catch(_){}
+  const on = b === 'city';
+  if (on && !city){ city = buildCity(); scene.add(city.grp); }
+  if (city){ city.grp.visible = on; city.beam.visible = on; }
+  voidGrid.visible = motes.visible = !on;
+  scene.background.setHex(on ? 0x07031a : 0x02030a);
+  scene.fog.color.setHex(on ? 0x0a0420 : 0x02030a); scene.fog.near = on ? 60 : 40; scene.fog.far = on ? 240 : 110;
 }
 
 // balls: dark shell with glowing bands (so you can see them roll), a halo and a floor glow
@@ -697,6 +802,7 @@ function showPage(p){
     card.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><h1 class="title">NEON SUMO</h1>' +
       '<p class="sub">Roll into the others and knock them off the platform. It shrinks as the round goes on. Last ball standing takes the round; first to ' + WINS + ' wins.</p>' +
       '<button class="btn small" data-id="arena"><b>Arena: ' + arenaLabel(arenaSel) + '</b><span>' + (arenaSel === 'mix' ? 'Classic, Donut and Bumpers in turn' : 'Tap to change') + '</span></button>' +
+      '<button class="btn small" data-id="backdrop"><b>Backdrop: ' + (backdrop === 'city' ? 'Neon city' : 'Void') + '</b><span>Experimental: float the platform above a neon city</span></button>' +
       '<button class="btn" data-id="solo"><b>Solo vs bots</b><span>You against three bots</span></button>' +
       (window.NEONSUMO_SOLO_ONLY ? '<p class="sub">Online rooms are off in this preview. They work on the GitHub Pages copy.</p>' :
       '<button class="btn" data-id="host"><b>Host a room</b><span>Get a code to share with friends (up to ' + MAX_PLAYERS + ')</span></button>' +
@@ -740,6 +846,7 @@ $('#card').addEventListener('click', e => {
   else if (id === 'rembot'){ const i = roster.map(q => q.bot).lastIndexOf(true); if (i >= 0){ roster.splice(i, 1); emit({t: 'roster', roster, scores}); } }
   else if (id === 'start' && roster.length >= 2) startMatch();
   else if (id === 'arcade' && net && net.role === 'host') goArcade(true);
+  else if (id === 'backdrop'){ setBackdrop(backdrop === 'city' ? 'void' : 'city'); showPage(page); }
   else if (id === 'arena' && (!net || net.role === 'host')){
     arenaSel = arenaSel === 'mix' ? 0 : arenaSel === ARENAS.length - 1 ? 'mix' : arenaSel + 1;
     try{ localStorage.setItem('neonsumo-arena', String(arenaSel)); }catch(_){}
@@ -1104,6 +1211,7 @@ function frame(){
   curtainMat.uniforms.col.value.setHex(shrinking ? 0xff4fbf : 0x33d9ff);
   sparksUpdate(gdt);
   postsUpdate(gdt);
+  cityUpdate(gdt);
   pickupsUpdate(gdt, now);
 
   // camera: high and behind, leaning toward your ball, wider on portrait screens
@@ -1142,6 +1250,7 @@ function frame(){
 window.__sumo = {get state(){ return state; }, get mode(){ return mode; }, get roster(){ return roster; }, get scores(){ return scores; }, get round(){ return round; }, get R(){ return R; }, get myId(){ return myId; }, get kos(){ return kos; }, get arena(){ return arena; }, get pickup(){ return pickup; }, fx: () => [...riders.values()].map(r => [r.id, +r.heavy.toFixed(1), +r.grip.toFixed(1)]), setArena(v){ arenaSel = v; }, get slow(){ return slow; },
   riders: () => [...riders.values()].map(r => ({id: r.id, x: r.x, z: r.z, dx: r.dx, dz: r.dz, alive: r.alive, inRound: r.inRound, falling: r.falling})), page: () => page, net: () => net && {role: net.role, code: net.code}};
 
+setBackdrop(backdrop);
 addEventListener('pagehide', netLeave);   // tell the room right away when the tab closes
 showPage('main');
 const m = /room=([A-Za-z0-9]{4})/.exec(location.hash), mh = /host=([A-Za-z0-9]{4})/.exec(location.hash);

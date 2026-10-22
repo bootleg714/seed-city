@@ -43,6 +43,8 @@ Three arenas: **Classic** (a plain disc), **Donut** (a hole in the middle you ca
 
 Power-ups: one glowing pickup appears near the middle 5 seconds into a round, and a new one 8 seconds after each is taken. Roll through it to grab it. **Heavy** (violet cube) makes you three times the weight for 5 seconds. **Shockwave** (cyan ring) blasts everyone near you outward, and any knockouts it causes are yours. **Grip** (lime crystal) lets you stop and steer hard for 5 seconds. Your active power-up and its time left show above the dash bar, and a ring around your ball flashes when it is about to run out.
 
+Experimental: the **Backdrop** button on the menu floats the platform above a procedural neon city (towers with lit windows, neon rooftops, glowing streets, flying traffic and a light beam under the platform). It is a per-player look, saved on your device, and doesn't change the game. Switch back to **Void** for the original.
+
 - **Keyboard:** WASD or arrows to roll, Space (or Shift) to dash, M for sound, Esc twice to leave
 - **Touch:** drag on the left side to roll, DASH button bottom right
 - **Controller:** left stick rolls, A or RT dashes, Start leaves
