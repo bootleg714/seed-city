@@ -1523,7 +1523,7 @@ function vrMenuDraw(){
   P.items = []; let y = pad + 6;
   const btnBox = (el, x, w, small) => {
     const off = el.classList.contains('off'), b = el.querySelector('b'), sp = el.querySelector('span');
-    const h = small || !sp ? 70 : 100, hov = VR.hover && VR.hover.el === el;
+    const h = small || !sp ? 70 : 100, hov = vrCtl.some(c => c.userData.hover === el);
     rrect(g, x, y, w, h, 16); g.fillStyle = hov ? 'rgba(51,217,255,.22)' : 'rgba(255,255,255,.05)'; g.fill();
     g.strokeStyle = hov ? '#33d9ff' : 'rgba(120,220,255,.25)'; g.lineWidth = hov ? 4 : 2; g.stroke();
     g.globalAlpha = off ? 0.4 : 1; g.fillStyle = '#eaf6ff'; g.textBaseline = 'middle';
@@ -1597,16 +1597,16 @@ const rc = new THREE.Raycaster(), rcM = new THREE.Matrix4();
 function vrPoint(){
   VR.hover = null;
   for (const c of vrCtl){
-    const ray = c.userData.ray; ray.visible = false;
+    const ray = c.userData.ray; ray.visible = false; c.userData.hover = null;
     if (!c.userData.src || !menuP.mesh.visible) continue;
     rcM.identity().extractRotation(c.matrixWorld);
     rc.ray.origin.setFromMatrixPosition(c.matrixWorld); rc.ray.direction.set(0, 0, -1).applyMatrix4(rcM).normalize();
     const hit = rc.intersectObject(menuP.mesh)[0];
     ray.visible = true; ray.scale.z = hit ? hit.distance/rig.scale.x : 2;
-    if (!hit || VR.hover) continue;
+    if (!hit) continue;
     const px = hit.uv.x*menuP.c.width, py = (1 - hit.uv.y)*menuP.c.height;
     const it = menuP.items.find(i => px >= i.x && px <= i.x + i.w && py >= i.y && py <= i.y + i.h);
-    if (it) VR.hover = {el: it.el, c};
+    if (it){ c.userData.hover = it.el; if (!VR.hover || (c.userData.src && c.userData.src.handedness === 'right')) VR.hover = {el: it.el, c}; }   // each hand points on its own
   }
 }
 function vrInput(menuShown){
@@ -1621,7 +1621,7 @@ function vrInput(menuShown){
     if (Math.abs(sx) < 0.3) VR.arm[hand] = true;
     if (trig || grip || btnA || btnB) userGestured = true;
     if (menuShown){
-      if (trig && VR.hover && VR.hover.c === c){ audio(); VR.hover.el.click(); buzz(g, 0.3, 25); VR.menuSig = ''; }
+      if (trig && c.userData.hover){ audio(); c.userData.hover.click(); buzz(g, 0.3, 25); VR.menuSig = ''; }
       continue;
     }
     if (trig){ localBoost(); buzz(g, 0.4, 40); }
@@ -1668,7 +1668,7 @@ function vrUpdate(dt){
   rig.updateMatrixWorld(true);
   vrPoint();
   vrInput(menuShown);
-  if (menuShown){ const sig = $('#card').innerHTML + '|' + (VR.hover ? menuP.items.findIndex(i => i.el === VR.hover.el) : -1); if (sig !== VR.menuSig){ VR.menuSig = sig; vrMenuDraw(); } }
+  if (menuShown){ const sig = $('#card').innerHTML + '|' + vrCtl.map(c => menuP.items.findIndex(i => i.el === c.userData.hover)).join(','); if (sig !== VR.menuSig){ VR.menuSig = sig; vrMenuDraw(); } }
   VR.hudT -= dt;
   if (hudP.mesh.visible && VR.hudT <= 0){
     VR.hudT = 0.1;

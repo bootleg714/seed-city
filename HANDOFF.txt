@@ -917,7 +917,9 @@ third (desktop only: new player car, banked turning, online Dogfight).
  - Menu: vrMenuDraw() lays out the page's own #card (kicker, title, sub,
    buttons, .row/.pick rows, roster) and records each button's rectangle;
    the laser (Raycaster from the controller) maps the hit uv to a button
-   and the trigger calls that button's real .click(). So every menu works
+   and the trigger calls that button's real .click(); each controller has
+   its own pointer (c.userData.hover), so a resting hand can't block the
+   other. So every menu works
    in VR without a second copy. Room-code input shows a note instead.
  - Scoreboard: mirrors #round, #board, #msg, #watch and the boost bar
    (VR.boostF set in updateBoost), redrawn at most 10x/s when it changes.
