@@ -33,11 +33,14 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 ## Neon Cycles in VR
 
-Open `cycles/` in the Quest browser and press **Enter VR** (bottom right). It starts in **tabletop** view: the arena floats in front of you as a glowing board, with a light pillar over your bike. Press **A or X** to switch to **riding** view, first person on your bike; turns are eased and the edges of your view darken while turning, to make it more comfortable. Press A/X again to go back.
+Open `cycles/` in the Quest browser and press **Enter VR** (bottom right). It starts in **tabletop** view: the arena floats in front of you as a glowing board, with a light pillar over your bike. Press **A or X** to switch to **riding** view, first person on your bike. Press A/X again to go back.
+
+Riding view has two turn styles (the **VR turns** button on the menu, or click a thumbstick while riding): **Blink** (default) fades to black for a moment on each turn and cuts to the new direction, so you never see the rotation, which is the most comfortable; **Smooth** swings the view round over about 0.4 s with the edges darkened.
 
 - **Turn:** left grip turns left, right grip turns right, or flick either thumbstick
 - **Boost:** trigger
 - **Menus:** point a controller and pull the trigger
+- **Turn style:** click a thumbstick (Blink or Smooth)
 - **Leave the match:** B or Y twice. Exit VR with the Quest button.
 
 The VR menu is the normal menu, so solo, hosting and lobbies all work in VR. Typing a room code needs the flat page, so to join a friend open their invite link, then press Enter VR. VR and desktop players can share a room.

@@ -1163,6 +1163,7 @@ function showPage(p){
       + btn('host', 'Host online', 'Get a room code for friends')
       + '<input id="code" class="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code" value="' + lastCode + '">'
       + btn('join', 'Join online', 'Type the code above, then join')
+      + (VR.ok ? btn('vrcomfort', 'VR turns: ' + (VR.comfort === 'blink' ? 'Blink' : 'Smooth'), VR.comfort === 'blink' ? 'Riding view fades out for each turn (most comfortable)' : 'Riding view swings round with darkened edges') : '')
       + btn('sound', 'Sound: ' + (soundOn ? 'on' : 'off'), '', 'small')
       + '<a class="back" href="../arcade/">Seed City Arcade: play with friends across games</a>'
       + '<a class="back" href="../desktop.html">← Back to Seed City</a>';
@@ -1197,6 +1198,7 @@ function menuAction(id){
   if (id === 'solo' || id === 'again') startSolo();
   else if (id === 'botsless'){ soloBots = Math.max(1, soloBots - 1); showPage('main'); }
   else if (id === 'botsmore'){ soloBots = Math.min(MAX_RIDERS - 1, soloBots + 1); showPage('main'); }
+  else if (id === 'vrcomfort'){ vrComfortToggle(); showPage('main'); }
   else if (id === 'sound'){ soundOn = !soundOn; if (!soundOn) engineSet(false, BASE_SPEED); showPage('main'); musicUpdate(true); }
   else if (id === 'host') netHost(0);
   else if (id === 'arenaprev' || id === 'arenanext'){
@@ -1476,8 +1478,9 @@ const TABLE_W = 1.3, TABLE_K = 2*HALF/TABLE_W;
     if (VR.on && rig.scale.x !== 1){ const n = 0.02, t = 2.5; c.projectionMatrix.makePerspective(-n*t, n*t, n*t, -n*t, n, 4000); if (c.projectionMatrixInverse) c.projectionMatrixInverse.copy(c.projectionMatrix).invert(); }
     return c;
   }; }
-const VR = {on: false, view: 'table', session: null, rideYaw: 0, vig: 0, boostF: -1, hover: null, menuSig: '', hudSig: '', hudT: 0, wasAlive: false, prev: {}, arm: {}};
-try{ if (localStorage.getItem('neoncycles-vrview') === 'ride') VR.view = 'ride'; }catch(_){}
+const VR = {on: false, view: 'table', comfort: 'blink', ok: false, blinkT: -1, dark: 0, maxDark: 0, session: null, rideYaw: 0, vig: 0, boostF: -1, hover: null, menuSig: '', hudSig: '', hudT: 0, wasAlive: false, prev: {}, arm: {}};
+try{ if (localStorage.getItem('neoncycles-vrview') === 'ride') VR.view = 'ride'; if (localStorage.getItem('neoncycles-vrcomfort') === 'smooth') VR.comfort = 'smooth'; }catch(_){}
+function vrComfortToggle(){ VR.comfort = VR.comfort === 'blink' ? 'smooth' : 'blink'; try{ localStorage.setItem('neoncycles-vrcomfort', VR.comfort); }catch(_){} }
 const rig = new THREE.Group();
 function vrPanel(w, h, px){
   const c = document.createElement('canvas'); c.width = px; c.height = Math.round(px*h/w);
@@ -1488,9 +1491,9 @@ function vrPanel(w, h, px){
 }
 const menuP = vrPanel(0.8, 1.12, 900), hudP = vrPanel(1.0, 0.44, 1024);
 rig.add(menuP.mesh, hudP.mesh);
-const vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({transparent: true, depthTest: false, depthWrite: false, uniforms: {uA: {value: 0}},
+const vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({transparent: true, depthTest: false, depthWrite: false, uniforms: {uA: {value: 0}, uB: {value: 0}},
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }',
-  fragmentShader: 'uniform float uA; varying vec2 vUv; void main(){ float r = length(vUv - 0.5)*2.0; gl_FragColor = vec4(0.0, 0.0, 0.0, uA*smoothstep(0.1, 0.3, r)); }'}));
+  fragmentShader: 'uniform float uA; uniform float uB; varying vec2 vUv; void main(){ float r = length(vUv - 0.5)*2.0; gl_FragColor = vec4(0.0, 0.0, 0.0, max(uA*smoothstep(0.1, 0.3, r), uB)); }'}));
 vignette.position.z = -0.25; vignette.renderOrder = 30;
 // a light pillar over your bike, so you can find it on the board
 const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 34, 10, 1, true).translate(0, 17, 0), new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending}));
@@ -1590,7 +1593,7 @@ function vrHudDraw(){
     g.font = '700 20px ' + FM; g.fillStyle = VR.boostF >= 1 ? '#ffb45e' : '#8aa0b4'; g.fillText(VR.boostF >= 1 ? 'BOOST READY · TRIGGER' : 'BOOST', 680, 372);
   }
   g.textAlign = 'left'; g.font = '20px ' + FB; g.fillStyle = '#8aa0b4';
-  g.fillText('Grip or stick: turn · Trigger: boost · A/X: ' + (VR.view === 'ride' ? 'tabletop' : 'riding') + ' view · B/Y twice: leave', 30, H - 40);
+  g.fillText('Grip or stick: turn · Trigger: boost · A/X: ' + (VR.view === 'ride' ? 'tabletop' : 'riding') + ' view · Stick click: ' + (VR.comfort === 'blink' ? 'smooth' : 'blink') + ' turns · B/Y twice: leave', 30, H - 40);
   P.tex.needsUpdate = true;
 }
 const rc = new THREE.Raycaster(), rcM = new THREE.Matrix4();
@@ -1614,7 +1617,7 @@ function vrInput(menuShown){
     const s = c.userData.src; if (!s || !s.gamepad) continue;
     const g = s.gamepad, hand = s.handedness || ('h' + vrCtl.indexOf(c));
     const edge = i => { const k = hand + i, now = !!(g.buttons[i] && g.buttons[i].pressed), was = !!VR.prev[k]; VR.prev[k] = now; return now && !was; };
-    const trig = edge(0), grip = edge(1), btnA = edge(4), btnB = edge(5);
+    const trig = edge(0), grip = edge(1), btnA = edge(4), btnB = edge(5), stickClick = edge(3);
     const sx = g.axes.length >= 4 ? g.axes[2] : (g.axes[0] || 0);
     let flick = 0;
     if (VR.arm[hand] !== false && Math.abs(sx) > 0.7){ flick = sx < 0 ? -1 : 1; VR.arm[hand] = false; }
@@ -1627,6 +1630,7 @@ function vrInput(menuShown){
     if (trig){ localBoost(); buzz(g, 0.4, 40); }
     if (grip){ localTurn(hand === 'left' ? -1 : 1); buzz(g, 0.25, 25); }
     if (flick){ localTurn(flick); buzz(g, 0.25, 25); }
+    if (stickClick){ vrComfortToggle(); flash(VR.comfort === 'blink' ? 'BLINK TURNS' : 'SMOOTH TURNS'); msgT = 1.2; }
     if (btnA){ VR.view = VR.view === 'ride' ? 'table' : 'ride'; try{ localStorage.setItem('neoncycles-vrview', VR.view); }catch(_){} flash(VR.view === 'ride' ? 'RIDING VIEW' : 'TABLETOP VIEW'); msgT = 1.2; }
     if (btnB) tryLeave();
   }
@@ -1641,23 +1645,40 @@ function vrUpdate(dt){
   const target = camTarget(), me = riders.get(myId);
   const ride = VR.view === 'ride' && target && !menuShown;
   if (ride){
-    const dy = ((target.yaw - VR.rideYaw + Math.PI*3) % (Math.PI*2)) - Math.PI, step = dy*(1 - Math.exp(-dt*5));
-    VR.rideYaw += step;
-    VR.vig += (Math.min(0.92, Math.abs(step)/Math.max(dt, 1e-3)*0.5) - VR.vig)*(1 - Math.exp(-dt*12));
+    const wrap = a => ((a + Math.PI*3) % (Math.PI*2)) - Math.PI;
+    let headYaw = target.yaw;
+    if (VR.comfort === 'blink'){
+      // Blink turns: fade to black, cut to the new heading while dark, fade back. You never see the rotation.
+      const ty = -target.dir*Math.PI/2, IN = 0.07, OUT = 0.13;
+      if (VR.blinkT < 0 && Math.abs(wrap(ty - VR.rideYaw)) > 0.05) VR.blinkT = 0;
+      if (VR.blinkT >= 0){
+        VR.blinkT += dt;
+        if (VR.blinkT < IN){ VR.dark = VR.blinkT/IN; VR.blinkCut = false; }
+        else if (!VR.blinkCut){ VR.rideYaw = ty; VR.dark = 1; VR.blinkCut = true; VR.blinkT = IN; }   // the cut always lands on a fully black frame, whatever the frame rate
+        else { VR.rideYaw = ty; VR.dark = Math.max(0, 1 - (VR.blinkT - IN)/OUT); if (VR.blinkT >= IN + OUT){ VR.blinkT = -1; VR.dark = 0; } }
+      }
+      VR.vig *= Math.exp(-dt*10); headYaw = VR.rideYaw;
+    } else {
+      // Smooth turns: ease the view round over ~0.4 s with the edges of the view darkened
+      const step = wrap(target.yaw - VR.rideYaw)*(1 - Math.exp(-dt*5));
+      VR.rideYaw += step; VR.dark = 0; VR.blinkT = -1;
+      VR.vig += (Math.min(0.92, Math.abs(step)/Math.max(dt, 1e-3)*0.5) - VR.vig)*(1 - Math.exp(-dt*12));
+    }
+    VR.maxDark = Math.max(VR.maxDark, VR.dark);
     // eye just in front of the rider's helmet (helmet centre: 1.17 up, 0.46 forward): you see your arms and the bike, not the back of your head
-    const bx = -Math.sin(target.yaw), bz = -Math.cos(target.yaw);
+    const bx = -Math.sin(headYaw), bz = -Math.cos(headYaw);
     rig.scale.setScalar(1); rig.rotation.set(0, VR.rideYaw, 0);
     rig.position.set(target.x + bx*0.52, 1.3, target.z + bz*0.52);
     hudP.mesh.position.set(0, -0.62, -0.92); hudP.mesh.rotation.set(-0.8, 0, 0); hudP.mesh.scale.setScalar(0.6);
     vrPoints(1);
   } else {
-    VR.rideYaw = target ? target.yaw : 0; VR.vig *= Math.exp(-dt*10);
+    VR.rideYaw = target ? -target.dir*Math.PI/2 : 0; VR.vig *= Math.exp(-dt*10); VR.dark = 0; VR.blinkT = -1;
     rig.scale.setScalar(TABLE_K); rig.rotation.set(0, 0, 0);
     rig.position.set(0, 0.62*TABLE_K, 0.95*TABLE_K);   // board centre 0.62 m below and 0.95 m in front of where your head started
     hudP.mesh.position.set(0, 0.16, -1.75); hudP.mesh.rotation.set(-0.08, 0, 0); hudP.mesh.scale.setScalar(1);
     vrPoints(TABLE_K);
   }
-  vignette.material.uniforms.uA.value = VR.vig; vignette.visible = VR.vig > 0.01;
+  vignette.material.uniforms.uA.value = VR.vig; vignette.material.uniforms.uB.value = VR.dark; vignette.visible = VR.vig > 0.01 || VR.dark > 0.01;
   const meLive = me && me.inRound && me.alive;
   beacon.visible = !ride && !menuShown && !!meLive;
   if (beacon.visible){ beacon.position.set(me.x, 0, me.z); beacon.material.color.setHex(me.color); }
@@ -1672,7 +1693,7 @@ function vrUpdate(dt){
   VR.hudT -= dt;
   if (hudP.mesh.visible && VR.hudT <= 0){
     VR.hudT = 0.1;
-    const sig = $('#round').textContent + $('#board').innerHTML + $('#msg').innerHTML + $('#watch').innerHTML + $('#watch').hidden + Math.round(VR.boostF*30) + VR.view;
+    const sig = $('#round').textContent + $('#board').innerHTML + $('#msg').innerHTML + $('#watch').innerHTML + $('#watch').hidden + Math.round(VR.boostF*30) + VR.view + VR.comfort;
     if (sig !== VR.hudSig){ VR.hudSig = sig; vrHudDraw(); }
   }
 }
@@ -1698,7 +1719,7 @@ function vrEnd(){
 (async () => {
   let ok = false;
   try{ ok = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); }catch(_){ ok = false; }
-  if (ok){ $('#vrbtn').hidden = false; $('#vrbtn').addEventListener('click', vrStart); }
+  if (ok){ VR.ok = true; $('#vrbtn').hidden = false; $('#vrbtn').addEventListener('click', vrStart); if (page === 'main' && !$('#menu').hidden) showPage('main'); }
 })();
 
 /* ---------- frame loop ---------- */
@@ -1742,7 +1763,7 @@ previewArena(); showPage('main');
   if (hh) setTimeout(() => netHost(0, hh[1].toUpperCase()), 300);
   else if (hm){ lastCode = hm[1].toUpperCase(); setTimeout(() => netJoin(lastCode), 300); } }
 // a little state for automated tests
-window.__cycles = {get state(){ return state; }, get vr(){ return {on: VR.on, view: VR.view, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
+window.__cycles = {get state(){ return state; }, get vr(){ return {on: VR.on, view: VR.view, comfort: VR.comfort, maxDark: VR.maxDark, rideYaw: VR.rideYaw, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
 renderer.setAnimationLoop(frame);   // XR-aware loop (same as requestAnimationFrame on a flat screen)
 })();
 </script>
