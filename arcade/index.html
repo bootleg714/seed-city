@@ -264,15 +264,15 @@ function gridToScreen(u, q, S, w, h, hz){
 function spawnPulse(S){
   // start somewhere in the far half on a fanning line, mostly out to the sides where the menu doesn't cover it
   const q = Math.floor(ROWS*(0.06 + Math.random()*0.45) - S) + 0.01;
-  pulses.push({u: (Math.random() < 0.5 ? -1 : 1)*Math.round(3 + Math.random()*19), q, dir: 0, speed: 2.8 + Math.random()*2.2, col: PULSE_COLORS[Math.floor(Math.random()*PULSE_COLORS.length)], trail: [], life: 0});
+  pulses.push({u: (Math.random() < 0.5 ? -1 : 1)*Math.round(3 + Math.random()*19), q, dir: 0, speed: 1.1 + Math.random()*0.8, col: PULSE_COLORS[Math.floor(Math.random()*PULSE_COLORS.length)], trail: [], life: 0});
 }
 function stepPulses(dt, S){
   spawnT -= dt;
-  if (spawnT <= 0 && pulses.length < 24){ spawnPulse(S); spawnT = 0.12 + Math.random()*0.35; }
+  if (spawnT <= 0 && pulses.length < 9){ spawnPulse(S); spawnT = 0.7 + Math.random()*1.1; }
   for (let i = pulses.length - 1; i >= 0; i--){
     const p = pulses[i];
     p.life += dt;
-    p.trail.push([p.u, p.q]); if (p.trail.length > 26) p.trail.shift();
+    p.trail.push([p.u, p.q]); if (p.trail.length > 150) p.trail.shift();   // about 2.5 seconds of path
     if (p.dir === 0){   // along a fanning line, toward you
       const before = Math.floor(p.q);
       p.q += p.speed*dt;
@@ -284,7 +284,7 @@ function stepPulses(dt, S){
       if (now !== before && Math.abs(p.u - now) < 0.5 && Math.random() < 0.45){ p.u = now; p.dir = 0; p.q += 0.01; }
     }
     const z = (p.q + S)/ROWS;
-    if (z > 1.08 || Math.abs(p.u) > 24) pulses.splice(i, 1);
+    if ((p.q + S - p.trail.length/150*6)/ROWS > 1.1 || Math.abs(p.u) > 24.5) pulses.splice(i, 1);   // let the long tail run off-screen too
   }
 }
 function drawPulses(S, w, h, hz, dpr){
@@ -293,7 +293,7 @@ function drawPulses(S, w, h, hz, dpr){
     const pts = p.trail.concat([[p.u, p.q]]).map(([u, q]) => gridToScreen(u, q, S, w, h, hz));
     const head = pts[pts.length - 1], fade = Math.min(1, head[2]*2.4 + 0.15, p.life*3);
     for (let k = 1; k < pts.length; k++){
-      const a = (k/pts.length)*0.85*fade;
+      const a = Math.pow(k/pts.length, 1.6)*0.85*fade;
       g2.strokeStyle = 'rgba(' + p.col + ',' + a.toFixed(3) + ')';
       g2.lineWidth = (1.4 + 3*Math.pow(Math.max(0, pts[k][2]), 2))*dpr;
       g2.beginPath(); g2.moveTo(pts[k - 1][0], pts[k - 1][1]); g2.lineTo(pts[k][0], pts[k][1]); g2.stroke();
