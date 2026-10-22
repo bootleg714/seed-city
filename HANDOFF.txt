@@ -907,8 +907,10 @@ third (desktop only: new player car, banked turning, online Dogfight).
    always fully black, then fades back over 0.13 s; Smooth eases the yaw
    with the edge vignette (below). The fade is the vignette mesh's uB.
  - Riding: rig at scale 1, eye just in front of the rider's helmet
-   (helmet centre is 1.17 up / 0.46 forward of the bike origin; the inside
-   of the helmet is back-face culled, so you see arms and tank). The view
+   (helmet centre is 1.17 up / 0.46 forward of the bike origin). The
+   rider of the bike you're on is hidden in this view (makeBike packs the
+   rider group R into its own merged meshes, bike.userData.rider), so you
+   see the bike's nose and the road; it reappears in every other view. The view
    yaw is eased (rate 5, ~0.4 s) instead of the bike's instant 90 degrees,
    and a black vignette on the camera fades in with turn speed.
 

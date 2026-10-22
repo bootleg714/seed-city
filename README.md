@@ -33,7 +33,7 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 ## Neon Cycles in VR
 
-Open `cycles/` in the Quest browser and press **Enter VR** (bottom right). It starts in **tabletop** view: the arena floats in front of you as a glowing board, with a light pillar over your bike. Press **A or X** to switch to **riding** view, first person on your bike. Press A/X again to go back.
+Open `cycles/` in the Quest browser and press **Enter VR** (bottom right). It starts in **tabletop** view: the arena floats in front of you as a glowing board, with a light pillar over your bike. Press **A or X** to switch to **riding** view, first person on your bike (your rider is hidden so nothing blocks the view). Press A/X again to go back.
 
 Riding view has two turn styles (the **VR turns** button on the menu, or click a thumbstick while riding): **Blink** (default) fades to black for a moment on each turn and cuts to the new direction, so you never see the rotation, which is the most comfortable; **Smooth** swings the view round over about 0.4 s with the edges darkened.
 

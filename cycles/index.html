@@ -473,8 +473,9 @@ function makeBike(color){
   }
   const pad=put(g,new THREE.PlaneGeometry(1.1,2.9).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:c,map:padTex,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false}),0,0.02,0);
   for(const w of wheels)packBikeMeshes(w);
-  packBikeMeshes(g,[...wheels,pad]);
-  g.userData={wheels,pad,dispose:()=>{
+  packBikeMeshes(R);   // the rider gets its own merged meshes, so the VR riding view can hide just the rider
+  packBikeMeshes(g,[...wheels,pad,R]);
+  g.userData={wheels,pad,rider:R,dispose:()=>{
     const geos=new Set(),mats=new Set(),shared=[darkMat,shellMat,riderMat,rubberMat,visorMat];
     g.traverse(m=>{if(m.geometry)geos.add(m.geometry);if(m.material&&!shared.includes(m.material))mats.add(m.material);});
     for(const geo of geos)geo.dispose();for(const mat of mats)mat.dispose();
@@ -1644,6 +1645,9 @@ function vrUpdate(dt){
   const menuShown = !$('#menu').hidden;
   const target = camTarget(), me = riders.get(myId);
   const ride = VR.view === 'ride' && target && !menuShown;
+  // riding: hide the rider of the bike you're on (you'd be looking through his head), keep the bike
+  const hideBike = ride ? target.bike : null;
+  if (VR.hidden !== hideBike){ if (VR.hidden && VR.hidden.userData.rider) VR.hidden.userData.rider.visible = true; if (hideBike && hideBike.userData.rider) hideBike.userData.rider.visible = false; VR.hidden = hideBike; }
   if (ride){
     const wrap = a => ((a + Math.PI*3) % (Math.PI*2)) - Math.PI;
     let headYaw = target.yaw;
@@ -1712,6 +1716,7 @@ async function vrStart(){
 }
 function vrEnd(){
   VR.on = false; VR.session = null;
+  if (VR.hidden && VR.hidden.userData.rider) VR.hidden.userData.rider.visible = true; VR.hidden = null;
   camera.remove(vignette); rig.remove(camera); scene.remove(rig); camera.scale.set(1, 1, 1);
   beacon.visible = false; vrPoints(1);
   $('#vrbtn').hidden = false; resize();
@@ -1763,7 +1768,7 @@ previewArena(); showPage('main');
   if (hh) setTimeout(() => netHost(0, hh[1].toUpperCase()), 300);
   else if (hm){ lastCode = hm[1].toUpperCase(); setTimeout(() => netJoin(lastCode), 300); } }
 // a little state for automated tests
-window.__cycles = {get state(){ return state; }, get vr(){ return {on: VR.on, view: VR.view, comfort: VR.comfort, maxDark: VR.maxDark, rideYaw: VR.rideYaw, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
+window.__cycles = {get state(){ return state; }, get vr(){ return {riderHidden: !!(VR.hidden && VR.hidden.userData.rider && !VR.hidden.userData.rider.visible), on: VR.on, view: VR.view, comfort: VR.comfort, maxDark: VR.maxDark, rideYaw: VR.rideYaw, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
 renderer.setAnimationLoop(frame);   // XR-aware loop (same as requestAnimationFrame on a flat screen)
 })();
 </script>
