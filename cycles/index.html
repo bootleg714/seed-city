@@ -71,6 +71,9 @@ a.back:hover{color:var(--fg)}
 #touch button.on{background:rgba(51,217,255,.22);border-color:var(--cyan)}
 @media (pointer:coarse){ #watch{bottom:calc(env(safe-area-inset-bottom,0px) + 128px)} }
 @media (max-width:640px){ #round{left:auto;right:10px;transform:none;white-space:normal;max-width:calc(100vw - 205px);text-align:right;font-size:10px;line-height:1.5;padding:6px 10px;border-radius:12px} #arena{left:auto;right:14px;transform:none;top:calc(env(safe-area-inset-top,0px) + 92px);font-size:10px} .title{font-size:26px} #msg{font-size:30px} #board{left:10px;padding:8px 10px} #hint{display:none} }
+#vrbtn{all:unset;box-sizing:border-box;position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:5;cursor:pointer;padding:12px 18px;border-radius:12px;border:1px solid var(--cyan);background:rgba(51,217,255,.16);color:var(--fg);font:700 14px/1 var(--f-data);letter-spacing:.18em;text-transform:uppercase;box-shadow:0 0 18px rgba(51,217,255,.35)}
+#vrbtn:hover{background:rgba(51,217,255,.28)}
+#vrbtn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 @media (prefers-reduced-motion: reduce){ .title,#msg{text-shadow:none} }
 </style>
 </head>
@@ -86,6 +89,7 @@ a.back:hover{color:var(--fg)}
 </div>
 <div id="hint"></div>
 <div id="touch" hidden><button data-t="-1" aria-label="Turn left">◀</button><button id="tboost" data-b="1" aria-label="Boost"><span>BOOST</span></button><button id="tview" data-v="1" aria-label="Switch spectator view" hidden>VIEW</button><button data-t="1" aria-label="Turn right">▶</button></div>
+<button id="vrbtn" hidden>Enter VR</button>
 <div id="menu"><div class="card" id="card" role="dialog" aria-label="Neon Cycles menu"></div></div>
 <p id="nogl" hidden style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center">WebGL is not available in this browser, so the arena can't be drawn.</p>
 
@@ -1098,6 +1102,7 @@ let fovBoost = 0, boostShown = -1;
 function updateBoost(dt){
   const me = riders.get(myId), live = me && me.inRound && me.alive && (state === 'run' || state === 'countdown');
   const f = !live ? 0 : state === 'countdown' ? 1 : Math.max(0, Math.min(1, 1 - (me.boostReady - tRun)/BOOST_CD));
+  VR.boostF = live ? f : -1;
   const key = live ? Math.round(f*50) : -1;
   if (key !== boostShown){
     boostShown = key;
@@ -1415,6 +1420,7 @@ let gpNavT = 0, gpNavHeld = false, gpStickArm = true;
 function gpGet(){ const l = navigator.getGamepads ? navigator.getGamepads() : []; let any = null; for (const g of l){ if (!g || !g.connected) continue; if (g.mapping === 'standard') return g; any = any || g; } return any; }
 function gpRumble(s, w, ms){ const g = gpGet(), a = g && g.vibrationActuator; if (a && a.playEffect){ try{ const p = a.playEffect('dual-rumble', {duration: ms, strongMagnitude: s, weakMagnitude: w}); if (p && p.catch) p.catch(()=>{}); }catch(_){} } }
 function gpUpdate(dt){
+  if (VR.on) return;   // in VR the Quest controllers are read by vrInput
   const g = gpGet(); if (!g) return;
   if (!gpOn){ gpOn = true; updateHint(); }
   if (g.buttons.some(b => b && b.pressed)){ userGestured = true; audio(); }
@@ -1447,8 +1453,256 @@ let userGestured = false;
 for (const ev of ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click']) window.addEventListener(ev, () => { userGestured = true; audio(); musicUpdate(true); }, {capture: true});
 window.addEventListener('gamepadconnected', () => { gpOn = true; updateHint(); });
 
+/* ---------- VR (WebXR): Quest browser, like Seed City ----------
+   Two views, switched with A or X:
+   - Tabletop (default): the camera rig is scaled up TABLE_K times, so the 220-unit arena
+     becomes a 1.3 m board just below and in front of you. Anything attached to the rig
+     (menu, scoreboard, controllers) keeps its real size in metres.
+   - Riding: rig at normal scale on your bike. Turns are eased over ~0.4 s instead of the
+     bike's instant 90 degrees, and the edges of your view darken while turning (comfort).
+   Controls: grip = turn that way (left grip left, right grip right), or flick a thumbstick;
+   trigger = boost; A/X = switch view; B/Y twice = leave. In menus, point and pull the trigger.
+   The menu panel is drawn from the page's own menu card and clicks its real buttons, so every
+   menu works in VR without a second copy. Typing a room code needs the flat page (or a link). */
+renderer.xr.enabled = true;
+if (renderer.xr.setFoveation) renderer.xr.setFoveation(1);
+const TABLE_W = 1.3, TABLE_K = 2*HALF/TABLE_W;
+// three.js r128 builds the combined camera it uses for culling from the eye distance in WORLD units
+// and near/far in metres. With the rig scaled up (tabletop) that pushes its near plane metres out and
+// culls everything close to you (menu, scoreboard, bikes). Give culling a wide, safe frustum instead.
+{ const getCam = renderer.xr.getCamera.bind(renderer.xr);
+  renderer.xr.getCamera = cam => {
+    const c = getCam(cam);
+    if (VR.on && rig.scale.x !== 1){ const n = 0.02, t = 2.5; c.projectionMatrix.makePerspective(-n*t, n*t, n*t, -n*t, n, 4000); if (c.projectionMatrixInverse) c.projectionMatrixInverse.copy(c.projectionMatrix).invert(); }
+    return c;
+  }; }
+const VR = {on: false, view: 'table', session: null, rideYaw: 0, vig: 0, boostF: -1, hover: null, menuSig: '', hudSig: '', hudT: 0, wasAlive: false, prev: {}, arm: {}};
+try{ if (localStorage.getItem('neoncycles-vrview') === 'ride') VR.view = 'ride'; }catch(_){}
+const rig = new THREE.Group();
+function vrPanel(w, h, px){
+  const c = document.createElement('canvas'); c.width = px; c.height = Math.round(px*h/w);
+  const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({map: tex, transparent: true, depthTest: false, depthWrite: false}));
+  mesh.renderOrder = 20; mesh.visible = false;
+  return {c, g: c.getContext('2d'), tex, mesh, w, h, items: []};
+}
+const menuP = vrPanel(0.8, 1.12, 900), hudP = vrPanel(1.0, 0.44, 1024);
+rig.add(menuP.mesh, hudP.mesh);
+const vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({transparent: true, depthTest: false, depthWrite: false, uniforms: {uA: {value: 0}},
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0); }',
+  fragmentShader: 'uniform float uA; varying vec2 vUv; void main(){ float r = length(vUv - 0.5)*2.0; gl_FragColor = vec4(0.0, 0.0, 0.0, uA*smoothstep(0.1, 0.3, r)); }'}));
+vignette.position.z = -0.25; vignette.renderOrder = 30;
+// a light pillar over your bike, so you can find it on the board
+const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 34, 10, 1, true).translate(0, 17, 0), new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending}));
+beacon.visible = false; scene.add(beacon);
+const vrCtl = [0, 1].map(i => {
+  const c = renderer.xr.getController(i);
+  c.addEventListener('connected', e => { c.userData.src = e.data; });
+  c.addEventListener('disconnected', () => { c.userData.src = null; });
+  const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({color: 0x33d9ff, transparent: true, opacity: 0.7}));
+  ray.frustumCulled = false; ray.visible = false; c.add(ray); c.userData.ray = ray;
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 0.09), new THREE.MeshBasicMaterial({color: 0x33d9ff}));
+  c.add(tip); rig.add(c);
+  return c;
+});
+const buzz = (g, v, ms) => { try{ const h = g && g.hapticActuators && g.hapticActuators[0]; if (h && h.pulse) h.pulse(v, ms); }catch(_){} };
+const buzzAll = (v, ms) => vrCtl.forEach(c => c.userData.src && buzz(c.userData.src.gamepad, v, ms));
+// canvas text helpers
+function wrapLines(g, text, maxW){
+  const words = String(text).split(/\s+/), out = []; let line = '';
+  for (const w of words){ const t = line ? line + ' ' + w : w; if (g.measureText(t).width > maxW && line){ out.push(line); line = w; } else line = t; }
+  if (line) out.push(line); return out;
+}
+function rrect(g, x, y, w, h, r){ g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+const FD = '"Michroma",system-ui,sans-serif', FM = '"JetBrains Mono",ui-monospace,monospace', FB = '"Figtree",system-ui,sans-serif';
+// the menu panel: lay out the page's menu card and remember where each button landed
+function vrMenuDraw(){
+  const P = menuP, g = P.g, W = P.c.width, H = P.c.height, pad = 44, inner = W - pad*2;
+  g.clearRect(0, 0, W, H);
+  rrect(g, 4, 4, W - 8, H - 8, 34); g.fillStyle = 'rgba(6,10,20,.92)'; g.fill(); g.strokeStyle = 'rgba(120,220,255,.35)'; g.lineWidth = 3; g.stroke();
+  P.items = []; let y = pad + 6;
+  const btnBox = (el, x, w, small) => {
+    const off = el.classList.contains('off'), b = el.querySelector('b'), sp = el.querySelector('span');
+    const h = small || !sp ? 70 : 100, hov = VR.hover && VR.hover.el === el;
+    rrect(g, x, y, w, h, 16); g.fillStyle = hov ? 'rgba(51,217,255,.22)' : 'rgba(255,255,255,.05)'; g.fill();
+    g.strokeStyle = hov ? '#33d9ff' : 'rgba(120,220,255,.25)'; g.lineWidth = hov ? 4 : 2; g.stroke();
+    g.globalAlpha = off ? 0.4 : 1; g.fillStyle = '#eaf6ff'; g.textBaseline = 'middle';
+    const label = b ? b.textContent : el.textContent, centered = w < inner*0.6;
+    g.font = '600 30px ' + FB; g.textAlign = centered ? 'center' : 'left';
+    const tx = centered ? x + w/2 : x + 26;
+    if (sp && !small){ g.fillText(label, tx, y + 36); g.font = '22px ' + FB; g.fillStyle = '#8aa0b4'; g.fillText(sp.textContent, tx, y + 70); }
+    else g.fillText(label, tx, y + h/2);
+    g.globalAlpha = 1; g.textAlign = 'left';
+    if (!off) P.items.push({el, x, y, w, h});
+    return h;
+  };
+  for (const el of $('#card').children){
+    if (y > H - 80) break;
+    const cl = el.classList;
+    if (cl.contains('kicker')){ g.font = '700 22px ' + FM; g.fillStyle = '#33d9ff'; g.textBaseline = 'top'; g.fillText(el.textContent.split('').join(String.fromCharCode(8202)), pad, y); y += 44; }
+    else if (cl.contains('title')){ g.font = '58px ' + FD; g.fillStyle = '#eaf6ff'; g.textBaseline = 'top'; g.shadowColor = 'rgba(51,217,255,.7)'; g.shadowBlur = 24; g.fillText(el.textContent, pad, y); g.shadowBlur = 0; y += 88; }
+    else if (cl.contains('big')){ g.font = '700 96px ' + FM; g.fillStyle = '#eaf6ff'; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(el.textContent.split('').join(' '), W/2, y); g.textAlign = 'left'; y += 120; }
+    else if (cl.contains('sub')){ g.font = '26px ' + FB; g.fillStyle = '#8aa0b4'; g.textBaseline = 'top'; for (const l of wrapLines(g, el.textContent, inner).slice(0, 4)){ g.fillText(l, pad, y); y += 36; } y += 14; }
+    else if (cl.contains('btn')){ y += btnBox(el, pad, inner, cl.contains('small')) + 16; }
+    else if (cl.contains('row') || cl.contains('pick')){
+      const kids = [...el.children], gap = 14, cw = (inner - gap*(kids.length - 1))/kids.length;
+      let h = 70;
+      kids.forEach((k, i) => {
+        const x = pad + i*(cw + gap);
+        if (k.classList.contains('btn')) h = Math.max(h, btnBox(k, x, cw, true));
+        else if (k.textContent.trim()){ g.font = '700 26px ' + FM; g.fillStyle = k.style.color || '#eaf6ff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(k.textContent, x + cw/2, y + 35); g.textAlign = 'left'; }
+      });
+      y += h + 16;
+    }
+    else if (cl.contains('roster')){
+      for (const pl of el.children){ const chip = pl.querySelector('.chip'); g.fillStyle = chip ? chip.style.color : '#eaf6ff'; g.beginPath(); g.arc(pad + 12, y + 16, 11, 0, Math.PI*2); g.fill();
+        g.font = '600 26px ' + FM; g.fillStyle = '#eaf6ff'; g.textBaseline = 'middle'; g.fillText(pl.textContent.trim(), pad + 36, y + 16); y += 40; }
+      y += 10;
+    }
+    else if (el.tagName === 'INPUT'){ g.font = '22px ' + FB; g.fillStyle = '#8aa0b4'; g.textBaseline = 'top'; g.fillText('Room codes are typed on the flat page (or open an invite link).', pad, y); y += 40; }
+  }
+  P.tex.needsUpdate = true;
+}
+// the scoreboard panel: mirrors the page's HUD (round, board, big message, watching, boost)
+function vrHudDraw(){
+  const P = hudP, g = P.g, W = P.c.width, H = P.c.height;
+  g.clearRect(0, 0, W, H);
+  rrect(g, 4, 4, W - 8, H - 8, 26); g.fillStyle = 'rgba(6,10,20,.82)'; g.fill(); g.strokeStyle = 'rgba(120,220,255,.3)'; g.lineWidth = 3; g.stroke();
+  g.textBaseline = 'top'; g.textAlign = 'left';
+  g.font = '700 22px ' + FM; g.fillStyle = '#8aa0b4'; g.fillText($('#round').textContent, 30, 24);
+  let y = 66;
+  for (const pl of $('#board').children){
+    const chip = pl.querySelector('.chip'), wins = pl.querySelector('.wins'), dead = pl.classList.contains('dead');
+    g.globalAlpha = dead ? 0.35 : 1;
+    g.fillStyle = chip ? chip.style.color : '#eaf6ff'; g.beginPath(); g.arc(42, y + 14, 10, 0, Math.PI*2); g.fill();
+    g.font = '600 24px ' + FM; g.fillStyle = '#eaf6ff'; g.fillText(pl.textContent.replace(wins ? wins.textContent : '', '').trim(), 64, y + 2);
+    if (wins){ g.textAlign = 'right'; g.fillText(wins.textContent, 340, y + 2); g.textAlign = 'left'; }
+    g.globalAlpha = 1; y += 40;
+  }
+  const msg = $('#msg'), small = msg.querySelector('small'), head = small ? msg.textContent.replace(small.textContent, '') : msg.textContent;
+  g.textAlign = 'center';
+  if (head.trim()){ g.font = '54px ' + FD; g.fillStyle = '#eaf6ff'; g.shadowColor = 'rgba(51,217,255,.8)'; g.shadowBlur = 20; g.fillText(head.trim().slice(0, 18), 680, 120); g.shadowBlur = 0; }
+  if (small){ g.font = '600 24px ' + FM; g.fillStyle = '#8aa0b4'; g.fillText(small.textContent.slice(0, 36), 680, 196); }
+  const watch = $('#watch'); if (!watch.hidden){ const b = watch.querySelector('b'); g.font = '700 26px ' + FM; g.fillStyle = b ? b.style.color || '#eaf6ff' : '#eaf6ff'; g.fillText(b ? b.textContent : '', 680, 260); }
+  if (VR.boostF >= 0){
+    g.fillStyle = 'rgba(255,255,255,.08)'; rrect(g, 530, 340, 300, 14, 7); g.fill();
+    g.fillStyle = '#ffb45e'; rrect(g, 530, 340, Math.max(14, 300*VR.boostF), 14, 7); g.fill();
+    g.font = '700 20px ' + FM; g.fillStyle = VR.boostF >= 1 ? '#ffb45e' : '#8aa0b4'; g.fillText(VR.boostF >= 1 ? 'BOOST READY · TRIGGER' : 'BOOST', 680, 372);
+  }
+  g.textAlign = 'left'; g.font = '20px ' + FB; g.fillStyle = '#8aa0b4';
+  g.fillText('Grip or stick: turn · Trigger: boost · A/X: ' + (VR.view === 'ride' ? 'tabletop' : 'riding') + ' view · B/Y twice: leave', 30, H - 40);
+  P.tex.needsUpdate = true;
+}
+const rc = new THREE.Raycaster(), rcM = new THREE.Matrix4();
+function vrPoint(){
+  VR.hover = null;
+  for (const c of vrCtl){
+    const ray = c.userData.ray; ray.visible = false;
+    if (!c.userData.src || !menuP.mesh.visible) continue;
+    rcM.identity().extractRotation(c.matrixWorld);
+    rc.ray.origin.setFromMatrixPosition(c.matrixWorld); rc.ray.direction.set(0, 0, -1).applyMatrix4(rcM).normalize();
+    const hit = rc.intersectObject(menuP.mesh)[0];
+    ray.visible = true; ray.scale.z = hit ? hit.distance/rig.scale.x : 2;
+    if (!hit || VR.hover) continue;
+    const px = hit.uv.x*menuP.c.width, py = (1 - hit.uv.y)*menuP.c.height;
+    const it = menuP.items.find(i => px >= i.x && px <= i.x + i.w && py >= i.y && py <= i.y + i.h);
+    if (it) VR.hover = {el: it.el, c};
+  }
+}
+function vrInput(menuShown){
+  for (const c of vrCtl){
+    const s = c.userData.src; if (!s || !s.gamepad) continue;
+    const g = s.gamepad, hand = s.handedness || ('h' + vrCtl.indexOf(c));
+    const edge = i => { const k = hand + i, now = !!(g.buttons[i] && g.buttons[i].pressed), was = !!VR.prev[k]; VR.prev[k] = now; return now && !was; };
+    const trig = edge(0), grip = edge(1), btnA = edge(4), btnB = edge(5);
+    const sx = g.axes.length >= 4 ? g.axes[2] : (g.axes[0] || 0);
+    let flick = 0;
+    if (VR.arm[hand] !== false && Math.abs(sx) > 0.7){ flick = sx < 0 ? -1 : 1; VR.arm[hand] = false; }
+    if (Math.abs(sx) < 0.3) VR.arm[hand] = true;
+    if (trig || grip || btnA || btnB) userGestured = true;
+    if (menuShown){
+      if (trig && VR.hover && VR.hover.c === c){ audio(); VR.hover.el.click(); buzz(g, 0.3, 25); VR.menuSig = ''; }
+      continue;
+    }
+    if (trig){ localBoost(); buzz(g, 0.4, 40); }
+    if (grip){ localTurn(hand === 'left' ? -1 : 1); buzz(g, 0.25, 25); }
+    if (flick){ localTurn(flick); buzz(g, 0.25, 25); }
+    if (btnA){ VR.view = VR.view === 'ride' ? 'table' : 'ride'; try{ localStorage.setItem('neoncycles-vrview', VR.view); }catch(_){} flash(VR.view === 'ride' ? 'RIDING VIEW' : 'TABLETOP VIEW'); msgT = 1.2; }
+    if (btnB) tryLeave();
+  }
+}
+let vrPointsK = 1;
+function vrPoints(k){
+  if (k === vrPointsK) return;
+  vrPointsK = k; sparks.material.size = 0.9/k; if (circuitLights.material) circuitLights.material.size = 3.4/k;
+}
+function vrUpdate(dt){
+  const menuShown = !$('#menu').hidden;
+  const target = camTarget(), me = riders.get(myId);
+  const ride = VR.view === 'ride' && target && !menuShown;
+  if (ride){
+    const dy = ((target.yaw - VR.rideYaw + Math.PI*3) % (Math.PI*2)) - Math.PI, step = dy*(1 - Math.exp(-dt*5));
+    VR.rideYaw += step;
+    VR.vig += (Math.min(0.92, Math.abs(step)/Math.max(dt, 1e-3)*0.5) - VR.vig)*(1 - Math.exp(-dt*12));
+    // eye just in front of the rider's helmet (helmet centre: 1.17 up, 0.46 forward): you see your arms and the bike, not the back of your head
+    const bx = -Math.sin(target.yaw), bz = -Math.cos(target.yaw);
+    rig.scale.setScalar(1); rig.rotation.set(0, VR.rideYaw, 0);
+    rig.position.set(target.x + bx*0.52, 1.3, target.z + bz*0.52);
+    hudP.mesh.position.set(0, -0.62, -0.92); hudP.mesh.rotation.set(-0.8, 0, 0); hudP.mesh.scale.setScalar(0.6);
+    vrPoints(1);
+  } else {
+    VR.rideYaw = target ? target.yaw : 0; VR.vig *= Math.exp(-dt*10);
+    rig.scale.setScalar(TABLE_K); rig.rotation.set(0, 0, 0);
+    rig.position.set(0, 0.62*TABLE_K, 0.95*TABLE_K);   // board centre 0.62 m below and 0.95 m in front of where your head started
+    hudP.mesh.position.set(0, 0.16, -1.75); hudP.mesh.rotation.set(-0.08, 0, 0); hudP.mesh.scale.setScalar(1);
+    vrPoints(TABLE_K);
+  }
+  vignette.material.uniforms.uA.value = VR.vig; vignette.visible = VR.vig > 0.01;
+  const meLive = me && me.inRound && me.alive;
+  beacon.visible = !ride && !menuShown && !!meLive;
+  if (beacon.visible){ beacon.position.set(me.x, 0, me.z); beacon.material.color.setHex(me.color); }
+  if (VR.wasAlive && me && me.inRound && !me.alive) buzzAll(1, 350);
+  VR.wasAlive = !!meLive;
+  menuP.mesh.visible = menuShown; menuP.mesh.position.set(0, -0.1, -1.0); menuP.mesh.rotation.set(-0.1, 0, 0);
+  hudP.mesh.visible = !menuShown && !$('#hud').hidden;
+  rig.updateMatrixWorld(true);
+  vrPoint();
+  vrInput(menuShown);
+  if (menuShown){ const sig = $('#card').innerHTML + '|' + (VR.hover ? menuP.items.findIndex(i => i.el === VR.hover.el) : -1); if (sig !== VR.menuSig){ VR.menuSig = sig; vrMenuDraw(); } }
+  VR.hudT -= dt;
+  if (hudP.mesh.visible && VR.hudT <= 0){
+    VR.hudT = 0.1;
+    const sig = $('#round').textContent + $('#board').innerHTML + $('#msg').innerHTML + $('#watch').innerHTML + $('#watch').hidden + Math.round(VR.boostF*30) + VR.view;
+    if (sig !== VR.hudSig){ VR.hudSig = sig; vrHudDraw(); }
+  }
+}
+async function vrStart(){
+  audio(); userGestured = true;
+  if (VR.session){ VR.session.end(); return; }
+  try{
+    const session = await navigator.xr.requestSession('immersive-vr');
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(session);
+    VR.session = session; VR.on = true; VR.menuSig = VR.hudSig = '';
+    scene.add(rig); rig.add(camera); camera.position.set(0, 0, 0); camera.quaternion.identity(); camera.add(vignette);
+    session.addEventListener('end', vrEnd);
+    $('#vrbtn').hidden = true;
+  }catch(e){ flash('VR COULD NOT START', String(e && e.message || e).slice(0, 40)); }
+}
+function vrEnd(){
+  VR.on = false; VR.session = null;
+  camera.remove(vignette); rig.remove(camera); scene.remove(rig); camera.scale.set(1, 1, 1);
+  beacon.visible = false; vrPoints(1);
+  $('#vrbtn').hidden = false; resize();
+}
+(async () => {
+  let ok = false;
+  try{ ok = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); }catch(_){ ok = false; }
+  if (ok){ $('#vrbtn').hidden = false; $('#vrbtn').addEventListener('click', vrStart); }
+})();
+
 /* ---------- frame loop ---------- */
-function resize(){ const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+function resize(){ if (renderer.xr.isPresenting) return; const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
 window.addEventListener('resize', resize); resize();
 let last = performance.now();
 function frame(now){
@@ -1477,17 +1731,19 @@ function frame(now){
   if (isAuth()) authTick(dt);
   netTick(dt);
   if (msgT > 0){ msgT -= dt; if (msgT <= 0) $('#msg').innerHTML = ''; }
-  updateBikes(dt); updateBoost(dt); updateSparks(dt); updateBooms(dt); updateCamera(dt);
+  updateBikes(dt); updateBoost(dt); updateSparks(dt); updateBooms(dt);
+  if (VR.on) vrUpdate(dt); else updateCamera(dt);
   floorMat.uniforms.uTime.value = wallMat.uniforms.uTime.value = now/1000;
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
 }
 previewArena(); showPage('main');
 { const hm = location.hash.match(/room=([A-Za-z0-9]{4})/), hh = location.hash.match(/host=([A-Za-z0-9]{4})/);
   if (hm || hh) try{ history.replaceState(null, '', location.pathname); }catch(_){}
   if (hh) setTimeout(() => netHost(0, hh[1].toUpperCase()), 300);
   else if (hm){ lastCode = hm[1].toUpperCase(); setTimeout(() => netJoin(lastCode), 300); } }
-requestAnimationFrame(frame);
+// a little state for automated tests
+window.__cycles = {get state(){ return state; }, get vr(){ return {on: VR.on, view: VR.view, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
+renderer.setAnimationLoop(frame);   // XR-aware loop (same as requestAnimationFrame on a flat screen)
 })();
 </script>
 </body>

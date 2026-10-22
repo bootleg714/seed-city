@@ -885,6 +885,58 @@ third (desktop only: new player car, banked turning, online Dogfight).
    A controller button never counts as permission to play sound.
 
 --------------------------------------------------------------------------------
+ 15e-2. NEON CYCLES IN VR (WebXR, added 2026-10-21 evening)
+--------------------------------------------------------------------------------
+
+ Same page as the flat game (so VR and desktop players share rooms). An
+ "Enter VR" button (bottom right) appears when navigator.xr supports
+ immersive-vr. Reference space 'local' like Seed City; foveation 1; the
+ loop is renderer.setAnimationLoop(frame) (works flat too).
+
+ Views (A/X switches; saved in localStorage 'neoncycles-vrview'):
+ - Tabletop (default, and always while a menu is up): the camera rig is
+   scaled TABLE_K = 220/1.3 = ~169, so the arena is a 1.3 m board, centre
+   0.62 m below and 0.95 m in front of where the head started. Anything
+   parented to the rig (panels, controllers) stays real size in metres.
+   PointsMaterial sizes are divided by the scale (sparks, circuit lights).
+   A light pillar marks your bike.
+ - Riding: rig at scale 1, eye just in front of the rider's helmet
+   (helmet centre is 1.17 up / 0.46 forward of the bike origin; the inside
+   of the helmet is back-face culled, so you see arms and tank). The view
+   yaw is eased (rate 5, ~0.4 s) instead of the bike's instant 90 degrees,
+   and a black vignette on the camera fades in with turn speed.
+
+ IMPORTANT three.js r128 bug worked around: setProjectionFromUnion() builds
+ the culling camera from the eye distance in WORLD units but near/far in
+ metres. With a scaled rig its near plane ends up metres away and culls
+ everything close (menu, scoreboard, bikes). renderer.xr.getCamera is
+ wrapped to replace that camera's projection with a wide, safe frustum
+ while the rig is scaled. Remove if three.js is upgraded and it's fixed.
+
+ Panels (canvas textures on planes, depthTest off, renderOrder 20):
+ - Menu: vrMenuDraw() lays out the page's own #card (kicker, title, sub,
+   buttons, .row/.pick rows, roster) and records each button's rectangle;
+   the laser (Raycaster from the controller) maps the hit uv to a button
+   and the trigger calls that button's real .click(). So every menu works
+   in VR without a second copy. Room-code input shows a note instead.
+ - Scoreboard: mirrors #round, #board, #msg, #watch and the boost bar
+   (VR.boostF set in updateBoost), redrawn at most 10x/s when it changes.
+ Controls (vrInput, Quest xr-standard gamepad): button 0 trigger = boost
+ (or click in menus), 1 grip = turn that side, 4 A/X = view, 5 B/Y =
+ tryLeave (twice), thumbstick axes[2] flick > 0.7 = turn (re-arms < 0.3).
+ gpUpdate() is skipped in VR so pads aren't read twice. Haptic pulses on
+ actions and a long one when you crash.
+
+ Tested with a WebXR stand-in (fake navigator.xr session rendering both
+ eyes side by side, scripted controller poses and buttons) in headless
+ Chromium: 14 checks (button shows, session, scale, laser finds buttons,
+ trigger starts a match, grip/stick turns, A to riding view, vignette,
+ haptics, B twice leaves, menus fall back to tabletop). Not yet tried on
+ a real Quest: check comfort, panel positions and frame rate first.
+ Performance idea if it stutters: renderer.xr.setFramebufferScaleFactor
+ (e.g. 0.8) or hide the distant city in VR.
+
+--------------------------------------------------------------------------------
  15f. HOW 2026-10-21 WAS TESTED, AND LESSONS
 --------------------------------------------------------------------------------
 

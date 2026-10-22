@@ -7,7 +7,7 @@ An endless, procedurally generated city that grows from a single number. Every t
 | Page | What it is |
 | --- | --- |
 | `index.html` | **VR build.** Open it in the Meta Quest browser and press **Enter VR**. Also runs as a flat preview on any computer. |
-| `cycles/` | **Neon Cycles**, a separate light-cycle arena game (solo against bots, or online with room codes). |
+| `cycles/` | **Neon Cycles**, a separate light-cycle arena game (solo against bots, or online with room codes). Also playable in VR on the Quest: press **Enter VR**. |
 | `arcade/` | **Seed City Arcade**, a party lobby: friends join one code, the host picks a game, and everyone moves between Neon Cycles and Neon Sumo together. |
 | `sumo/` | **Neon Sumo**, bumper sumo on a shrinking neon platform (solo against bots, or online with room codes). |
 | `desktop.html` | **Full desktop build.** HDR bloom, rain with wet-street reflections, car reflections, chase and cockpit views. |
@@ -30,6 +30,17 @@ A menu floats over the live city when you start (in VR, point a controller at it
 - **Courier:** a delivery shift on a clock. Fly to the cyan light column, slow down over the rooftop pad and hold steady to load the package, then race it to the amber column. Faster deliveries pay more credits, every delivery adds 12 seconds to your shift, and bumping buildings with cargo aboard costs you. Your best shift per seed is saved.
 - **Combat:** waves of interceptor drones circle you, climb over buildings and fire red bolts that lead your movement (buildings block them). Your shield drops with each hit and recharges after a few seconds out of fire; at zero you're shot down. Each wave adds drones that are faster and shoot more often; clearing one scores a bonus and restores some shield. Your lasers get a slight aim assist, the red arrow points to the nearest drone, and your best score per seed is saved.
 - **Dogfight (desktop, online):** fly against friends. One pilot picks **Host a room** and shares the four-letter code; the others type it in and pick **Join a room** (or open `desktop.html#room=CODE`). Everyone flies in the host's city, up to 6 pilots. Lasers chip away at shields, a red arrow points to the nearest pilot, and you respawn three seconds after being shot down. It is peer to peer through the free PeerJS service, so there is no server to run; some strict networks (some workplaces, schools or mobile hotspots) block direct connections.
+
+## Neon Cycles in VR
+
+Open `cycles/` in the Quest browser and press **Enter VR** (bottom right). It starts in **tabletop** view: the arena floats in front of you as a glowing board, with a light pillar over your bike. Press **A or X** to switch to **riding** view, first person on your bike; turns are eased and the edges of your view darken while turning, to make it more comfortable. Press A/X again to go back.
+
+- **Turn:** left grip turns left, right grip turns right, or flick either thumbstick
+- **Boost:** trigger
+- **Menus:** point a controller and pull the trigger
+- **Leave the match:** B or Y twice. Exit VR with the Quest button.
+
+The VR menu is the normal menu, so solo, hosting and lobbies all work in VR. Typing a room code needs the flat page, so to join a friend open their invite link, then press Enter VR. VR and desktop players can share a room.
 
 ## Seed City Arcade
 
