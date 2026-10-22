@@ -48,6 +48,16 @@ main{position:relative;z-index:1;min-height:100%;display:grid;place-items:center
 .pl{display:flex;align-items:center;gap:10px;font:600 14px/1 var(--f-data);letter-spacing:.08em}
 .chip{width:12px;height:12px;border-radius:50%;box-shadow:0 0 10px currentColor;background:currentColor}
 .tag{font:500 10px/1 var(--f-data);color:var(--muted);letter-spacing:.14em}
+.name{box-sizing:border-box;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--fg);font:600 15px/1.2 var(--f-body)}
+.name:focus,.say input:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.chat{display:grid;gap:8px}
+.log{max-height:210px;min-height:84px;overflow-y:auto;display:grid;align-content:start;gap:6px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);font:14px/1.4 var(--f-body);overflow-wrap:anywhere}
+.log .msg b{font:700 13px/1 var(--f-data);letter-spacing:.06em;margin-right:6px}
+.log .sys{color:var(--muted);font:600 11px/1.4 var(--f-data);letter-spacing:.12em}
+.log .empty{color:var(--muted);font-size:13px}
+.say{display:grid;grid-template-columns:1fr auto;gap:8px}
+.say input{min-width:0;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--fg);font:15px/1.2 var(--f-body)}
+.say input::placeholder,.name::placeholder{color:var(--muted)}
 .status{font:600 12px/1.4 var(--f-data);letter-spacing:.12em;color:var(--amber);text-align:center}
 @media (max-width:460px){ .cabs{grid-template-columns:1fr} .title{font-size:28px} .big{font-size:44px} }
 @media (prefers-reduced-motion: reduce){ .cab{transition:none} .title,.big{text-shadow:none} }
@@ -75,6 +85,8 @@ const GAMES = {
 };
 const COLORS = ['#33d9ff', '#ffb45e', '#ff4fbf', '#8dff4a', '#a98bff', '#ff4b3e'];
 const PREFIX = 'seedarcade-', PEERJS = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', MAX = 6, TIMEOUT = window.NEONSUMO_TIMEOUT || 8;
+let myName = '', log = [], quietUntil = 0, lastSay = -1e9;
+try{ myName = cleanName(localStorage.getItem('seedarcade-name') || ''); }catch(_){}
 let page = 'home', net = null, roster = [], myId = 'p0', err = '', status = '', lastCode = '', copied = false, going = null;
 
 /* ---------- small pictures of each cabinet ---------- */
@@ -100,10 +112,12 @@ function show(p){
   if (p === 'home'){
     c.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><h1 class="title">One room. Every game.</h1>' +
       '<p class="sub">Get your friends into one party here. The host picks a game and everyone goes together, then comes back to pick the next one. Nobody has to swap codes.</p>' +
+      '<p class="label">YOUR NAME</p><input class="name" id="name" maxlength="16" placeholder="What should friends call you?" autocomplete="nickname" spellcheck="false" aria-label="Your name" value="' + esc(myName) + '">' +
       '<button class="btn" data-id="host"><b>Start a party</b><span>Get a code to share (up to ' + MAX + ' players)</span></button>' +
       '<input class="code" id="code" maxlength="4" placeholder="PARTY CODE" autocomplete="off" spellcheck="false" aria-label="Party code" value="' + lastCode + '">' +
       '<button class="btn" data-id="join"><b>Join a party</b><span>Type the host’s four-letter code above</span></button>' +
       '<p class="label">PLAY SOLO</p><div class="cabs">' + cab('cycles', {href: '../cycles/'}) + cab('sumo', {href: '../sumo/'}) + '</div>';
+    $('#name').addEventListener('input', e => { myName = cleanName(e.target.value); try{ localStorage.setItem('seedarcade-name', myName); }catch(_){} });
     const code = $('#code');
     code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); lastCode = code.value; });
     code.addEventListener('keydown', e => { if (e.key === 'Enter') join(code.value); });
@@ -113,14 +127,55 @@ function show(p){
     c.innerHTML = '<p class="kicker">SEED CITY ARCADE</p><p class="sub">' + err + '</p><button class="btn small" data-id="home"><b>Back</b></button>';
   } else if (p === 'party'){
     const host = net && net.role === 'host';
-    c.innerHTML = '<p class="kicker">PARTY</p><div class="big">' + (net ? net.code : '') + '</div>' +
-      (host ? '<button class="btn small" data-id="copy"><b>' + (copied ? 'Link copied' : 'Copy invite link') + '</b><span>Opens the arcade straight into this party</span></button>' : '') +
-      '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:' + COLORS[q.c % COLORS.length] + '"></span>' + (q.id === myId ? 'YOU' : 'PLAYER ' + (roster.indexOf(q) + 1)) + (q.id === 'p0' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>' +
-      (going ? '<p class="status">HEADING TO ' + GAMES[going].name.toUpperCase() + '…</p>'
-        : host ? '<p class="label">PICK A GAME FOR EVERYONE</p><div class="cabs">' + cab('cycles', {}) + cab('sumo', {}) + '</div>'
-               : '<p class="sub">You’re in. The host picks the game, and you’ll go there automatically.</p>') +
-      '<button class="btn small" data-id="leave"><b>Leave party</b></button>';
+    const rosterHtml = '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:' + COLORS[q.c % COLORS.length] + '"></span>' + esc(who(q).toUpperCase()) + (q.id === myId ? ' <span class="tag">YOU</span>' : '') + (q.id === 'p0' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>';
+    const mainHtml = going ? '<p class="status">HEADING TO ' + GAMES[going].name.toUpperCase() + '…</p>'
+      : host ? '<p class="label">PICK A GAME FOR EVERYONE</p><div class="cabs">' + cab('cycles', {}) + cab('sumo', {}) + '</div>'
+             : '<p class="sub">You’re in. The host picks the game, and you’ll go there automatically.</p>';
+    const copyHtml = host ? '<button class="btn small" data-id="copy"><b>' + (copied ? 'Link copied' : 'Copy invite link') + '</b><span>Opens the arcade straight into this party</span></button>' : '';
+    // already showing this party: refresh the changing parts only, so the chat box (and anything half-typed) stays put
+    if ($('#party') && $('#party').dataset.code === (net ? net.code : '')){
+      $('#pcopy').innerHTML = copyHtml; $('#proster').innerHTML = rosterHtml; $('#pmain').innerHTML = mainHtml;
+      return;
+    }
+    c.innerHTML = '<div id="party" data-code="' + (net ? net.code : '') + '" style="display:grid;gap:16px"><p class="kicker">PARTY</p><div class="big">' + (net ? net.code : '') + '</div>' +
+      '<div id="pcopy">' + copyHtml + '</div><div id="proster">' + rosterHtml + '</div><div id="pmain" style="display:grid;gap:16px">' + mainHtml + '</div>' +
+      '<p class="label">CHAT</p><div class="chat"><div id="log" class="log" role="log" aria-live="polite"></div>' +
+      '<form id="sayf" class="say"><input id="say" maxlength="200" placeholder="Message the party" autocomplete="off" aria-label="Message the party"><button class="btn small" type="submit"><b>Send</b></button></form></div>' +
+      '<button class="btn small" data-id="leave"><b>Leave party</b></button></div>';
+    const say = $('#say');
+    $('#sayf').addEventListener('submit', e => { e.preventDefault(); sendChat(say.value); say.value = ''; say.focus(); });
+    renderLog();
   }
+}
+/* ---------- chat: the host keeps the log and passes each message to everyone ---------- */
+function esc(t){ return String(t).replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch])); }
+function cleanName(t){ return String(t || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+function cleanText(t){ return String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); }
+const who = q => q.name || 'Player ' + (roster.indexOf(q) + 1);
+function renderLog(){
+  const el = $('#log'); if (!el) return;
+  el.textContent = '';
+  if (!log.length){ const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No messages yet. Say hi.'; el.appendChild(e); return; }
+  for (const m of log){
+    const row = document.createElement('div');
+    if (m.s){ row.className = 'sys'; row.textContent = m.x; }
+    else { row.className = 'msg'; const b = document.createElement('b'); b.textContent = m.n; b.style.color = COLORS[m.c % COLORS.length]; row.appendChild(b); row.appendChild(document.createTextNode(m.x)); }
+    el.appendChild(row);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+function addLog(m){ log.push(m); if (log.length > 60) log.splice(0, log.length - 60); if (page === 'party') renderLog(); }
+// host only: stamp a message with the sender's name and colour, keep it, pass it on
+function hostPost(q, text, sys){
+  const m = sys ? {s: 1, x: text} : {n: who(q), c: q.c, x: text};
+  addLog(m); send({t: 'chat', m});
+}
+function sendChat(raw){
+  const text = cleanText(raw), now = performance.now()/1000;
+  if (!text || !net || now - lastSay < 0.7) return;   // a short cooldown so nobody floods the chat
+  lastSay = now;
+  if (net.role === 'host') hostPost(roster.find(q => q.id === myId), text);
+  else send({t: 'say', x: text});
 }
 $('#card').addEventListener('click', e => {
   const g = e.target.closest('[data-go]');
@@ -165,7 +220,15 @@ async function host(attempt, fixed){
   const code = fixed || newCode(), peer = new P(PREFIX + code, opts());
   net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
   const me = net;
-  peer.on('open', () => { if (net !== me) return; myId = 'p0'; roster = [{id: 'p0', c: 0}]; copied = false; show('party'); });
+  peer.on('open', () => {
+    if (net !== me) return;
+    myId = 'p0'; roster = [{id: 'p0', c: 0, name: myName}]; copied = false; log = [];
+    if (fixed){   // back from a game: bring the conversation back, and don't announce everyone rejoining
+      try{ log = JSON.parse(sessionStorage.getItem('seedarcade-chat-' + code) || '[]'); }catch(_){ log = []; }
+      quietUntil = performance.now()/1000 + 25;
+    }
+    show('party');
+  });
   peer.on('connection', conn => {
     conn.on('data', d => recv(d, conn));
     conn.on('close', () => drop(conn));
@@ -192,7 +255,7 @@ async function join(code, attempt, wait){
     if (net !== me) return;
     const conn = peer.connect(PREFIX + code, {reliable: true, serialization: 'json'});
     me.conn = conn;
-    conn.on('open', () => conn.send({t: 'hello'}));
+    conn.on('open', () => conn.send({t: 'hello', name: myName}));
     conn.on('data', d => recv(d, conn));
     conn.on('close', () => { if (net === me && !going) fail(me.joined ? 'The host closed the party.' : 'The party closed before you got in.'); });
     conn.on('error', () => { if (net === me && !going) fail('The connection to the host failed.'); });
@@ -209,8 +272,10 @@ function drop(conn){
   if (!net || net.role !== 'host') return;
   const info = net.conns.get(conn); if (!info) return;
   net.conns.delete(conn); try{ conn.close(); }catch(_){}
+  const gone = roster.find(q => q.id === info.id);
   roster = roster.filter(q => q.id !== info.id);
   send({t: 'roster', roster}); if (page === 'party') show('party');
+  if (gone && !going && performance.now()/1000 > quietUntil) hostPost(null, who(gone) + ' left', true);
 }
 function recv(d, conn){
   if (!net || !d || typeof d !== 'object') return;
@@ -220,22 +285,31 @@ function recv(d, conn){
       if (roster.length >= MAX){ conn.send({t: 'full'}); setTimeout(() => { try{ conn.close(); }catch(_){} }, 300); return; }
       const id = 'p' + (net.nextId++);
       net.conns.set(conn, {id, last: now});
-      roster.push({id, c: freeColor()});
-      conn.send({t: 'welcome', id, roster, going});
+      const q = {id, c: freeColor(), name: cleanName(d.name)};
+      roster.push(q);
+      conn.send({t: 'welcome', id, roster, going, log: log.slice(-40)});
       send({t: 'roster', roster}); show('party');
+      if (now > quietUntil) hostPost(null, who(q) + ' joined', true);
       return;
     }
-    const info = net.conns.get(conn); if (info) info.last = now;
+    const info = net.conns.get(conn); if (!info) return;
+    info.last = now;
+    if (d.t === 'say'){
+      const text = cleanText(d.x), q = roster.find(r => r.id === info.id);
+      if (!text || !q || now - (info.lastSay ?? -1e9) < 0.7) return;
+      info.lastSay = now; hostPost(q, text);
+    }
   } else {
     net.hostLast = now;
-    if (d.t === 'welcome'){ net.joined = true; myId = d.id; roster = d.roster; show('party'); if (d.going) go(d.going); return; }
+    if (d.t === 'welcome'){ net.joined = true; myId = d.id; roster = d.roster; log = Array.isArray(d.log) ? d.log : []; show('party'); if (d.going) go(d.going); return; }
+    if (d.t === 'chat'){ if (d.m && typeof d.m.x === 'string') addLog({n: cleanName(d.m.n), c: d.m.c | 0, x: cleanText(d.m.x), s: d.m.s ? 1 : 0}); return; }
     if (d.t === 'roster'){ roster = d.roster; if (page === 'party') show('party'); return; }
     if (d.t === 'full') return fail('That party is full (' + MAX + ' players).');
     if (d.t === 'go') return go(d.g);
   }
 }
 // host picks a game: tell everyone, then re-open the same code inside that game
-function pick(g){ going = g; send({t: 'go', g}); show('party'); setTimeout(() => { location.href = '../' + g + '/#host=' + net.code + '&arcade'; }, 400); }
+function pick(g){ going = g; try{ sessionStorage.setItem('seedarcade-chat-' + net.code, JSON.stringify(log.slice(-40))); }catch(_){} send({t: 'go', g}); show('party'); setTimeout(() => { location.href = '../' + g + '/#host=' + net.code + '&arcade'; }, 400); }
 function go(g){ if (!GAMES[g]) return; going = g; show('party'); location.href = '../' + g + '/#room=' + net.code + '&arcade&wait'; }
 setInterval(() => {
   if (!net) return;
@@ -334,7 +408,7 @@ const hh = /host=([A-Za-z0-9]{4})/.exec(location.hash), hr = /room=([A-Za-z0-9]{
 if (hh || hr) try{ history.replaceState(null, '', location.pathname); }catch(_){}
 if (hh) host(0, hh[1].toUpperCase());
 else if (hr) join(hr[1], 0, wait);
-window.__arcade = {page: () => page, code: () => net && net.code, role: () => net && net.role, roster: () => roster};
+window.__arcade = {log: () => log, say: t => sendChat(t), page: () => page, code: () => net && net.code, role: () => net && net.role, roster: () => roster};
 })();
 </script>
 </body>

@@ -33,7 +33,7 @@ A menu floats over the live city when you start (in VR, point a controller at it
 
 ## Seed City Arcade
 
-A party lobby for playing the games together. One player picks **Start a party** and shares the code or invite link; friends join. The host picks a game and everyone goes there together, already in the same room: the host re-opens the same code inside the game, and everyone else joins it automatically (retrying for a few seconds while it opens). In the game's lobby, the host's **Back to arcade** button brings the whole room back to the party to pick the next game. The arcade uses PeerJS ids `seedarcade-<CODE>`; the games also accept `#host=CODE&arcade` and `#room=CODE&arcade&wait` links for this hand-off.
+A party lobby for playing the games together. One player picks **Start a party** and shares the code or invite link; friends join. The host picks a game and everyone goes there together, already in the same room: the host re-opens the same code inside the game, and everyone else joins it automatically (retrying for a few seconds while it opens). In the game's lobby, the host's **Back to arcade** button brings the whole room back to the party to pick the next game. Players can set a name on the arcade's front page (saved on their device), and the party has a chat: messages go through the host to everyone in the party, nothing is stored on a server, and the host's browser carries the recent messages along when the party visits a game. Messages are plain text, up to 200 characters, with a short cooldown between them. The arcade uses PeerJS ids `seedarcade-<CODE>`; the games also accept `#host=CODE&arcade` and `#room=CODE&arcade&wait` links for this hand-off.
 
 ## Neon Sumo
 
