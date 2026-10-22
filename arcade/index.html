@@ -246,24 +246,84 @@ setInterval(() => {
 }, 1000);
 addEventListener('pagehide', () => { if (net && !going) leave(); });
 
-/* ---------- background: a slow neon grid running toward the horizon ---------- */
+/* ---------- background: a slow neon grid running toward the horizon ----------
+   Grid coordinates: u is the line across (-24..24, the lines fanning out from the horizon),
+   q is the line along (horizontal lines sit at whole q and scroll toward you with the grid).
+   Pulses run along these lines like current in a circuit: down a fanning line toward you,
+   sometimes turning onto a crossing line and back, and fade out at the edges. */
 const cv = $('#bg'), g2 = cv.getContext('2d');
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ROWS = 18, SCROLL = 0.35, NEAR = 0.012, FAR = 0.16;
+const PULSE_COLORS = ['51,217,255', '51,217,255', '51,217,255', '255,79,191', '255,180,94'];
+const pulses = [];
+let lastT = 0, spawnT = 0;
+function gridToScreen(u, q, S, w, h, hz){
+  const z = (q + S)/ROWS, f = Math.pow(Math.max(0, z), 2.2);
+  return [w/2 + u*w*(NEAR + (FAR - NEAR)*f), hz + (h - hz)*f, z];
+}
+function spawnPulse(S){
+  // start somewhere in the far half on a fanning line, mostly out to the sides where the menu doesn't cover it
+  const q = Math.floor(ROWS*(0.06 + Math.random()*0.45) - S) + 0.01;
+  pulses.push({u: (Math.random() < 0.5 ? -1 : 1)*Math.round(3 + Math.random()*19), q, dir: 0, speed: 2.8 + Math.random()*2.2, col: PULSE_COLORS[Math.floor(Math.random()*PULSE_COLORS.length)], trail: [], life: 0});
+}
+function stepPulses(dt, S){
+  spawnT -= dt;
+  if (spawnT <= 0 && pulses.length < 24){ spawnPulse(S); spawnT = 0.12 + Math.random()*0.35; }
+  for (let i = pulses.length - 1; i >= 0; i--){
+    const p = pulses[i];
+    p.life += dt;
+    p.trail.push([p.u, p.q]); if (p.trail.length > 26) p.trail.shift();
+    if (p.dir === 0){   // along a fanning line, toward you
+      const before = Math.floor(p.q);
+      p.q += p.speed*dt;
+      if (Math.floor(p.q) !== before && Math.random() < 0.3){ p.q = Math.floor(p.q); p.dir = Math.random() < 0.5 ? -1 : 1; }
+    } else {            // along a crossing line, sideways
+      const before = Math.round(p.u);
+      p.u += p.dir*p.speed*1.4*dt;
+      const now = p.dir > 0 ? Math.floor(p.u) : Math.ceil(p.u);
+      if (now !== before && Math.abs(p.u - now) < 0.5 && Math.random() < 0.45){ p.u = now; p.dir = 0; p.q += 0.01; }
+    }
+    const z = (p.q + S)/ROWS;
+    if (z > 1.08 || Math.abs(p.u) > 24) pulses.splice(i, 1);
+  }
+}
+function drawPulses(S, w, h, hz, dpr){
+  g2.save(); g2.globalCompositeOperation = 'lighter'; g2.lineCap = 'round';
+  for (const p of pulses){
+    const pts = p.trail.concat([[p.u, p.q]]).map(([u, q]) => gridToScreen(u, q, S, w, h, hz));
+    const head = pts[pts.length - 1], fade = Math.min(1, head[2]*2.4 + 0.15, p.life*3);
+    for (let k = 1; k < pts.length; k++){
+      const a = (k/pts.length)*0.85*fade;
+      g2.strokeStyle = 'rgba(' + p.col + ',' + a.toFixed(3) + ')';
+      g2.lineWidth = (1.4 + 3*Math.pow(Math.max(0, pts[k][2]), 2))*dpr;
+      g2.beginPath(); g2.moveTo(pts[k - 1][0], pts[k - 1][1]); g2.lineTo(pts[k][0], pts[k][1]); g2.stroke();
+    }
+    const r = (3.5 + 11*Math.pow(Math.max(0, head[2]), 2))*dpr, glow = g2.createRadialGradient(head[0], head[1], 0, head[0], head[1], r*2.4);
+    glow.addColorStop(0, 'rgba(255,255,255,' + (0.95*fade).toFixed(3) + ')');
+    glow.addColorStop(0.25, 'rgba(' + p.col + ',' + (0.8*fade).toFixed(3) + ')');
+    glow.addColorStop(1, 'rgba(' + p.col + ',0)');
+    g2.fillStyle = glow; g2.beginPath(); g2.arc(head[0], head[1], r*2.4, 0, Math.PI*2); g2.fill();
+  }
+  g2.restore();
+}
 function drawBg(t){
-  const w = cv.width = innerWidth*Math.min(devicePixelRatio || 1, 2), h = cv.height = innerHeight*Math.min(devicePixelRatio || 1, 2);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = cv.width = innerWidth*dpr, h = cv.height = innerHeight*dpr;
+  const dt = Math.min(0.05, lastT ? (t - lastT)/1000 : 0); lastT = t;
   g2.fillStyle = '#02030a'; g2.fillRect(0, 0, w, h);
   const hz = h*0.42, glow = g2.createLinearGradient(0, hz - h*0.25, 0, hz + 4);
   glow.addColorStop(0, 'rgba(255,79,191,0)'); glow.addColorStop(1, 'rgba(255,79,191,.18)');
   g2.fillStyle = glow; g2.fillRect(0, hz - h*0.25, w, h*0.25 + 4);
   g2.strokeStyle = 'rgba(51,217,255,.35)'; g2.lineWidth = Math.max(1, w/1400);
   const cx = w/2;
-  for (let i = -24; i <= 24; i++){ g2.beginPath(); g2.moveTo(cx + i*w*0.012, hz); g2.lineTo(cx + i*w*0.16, h); g2.stroke(); }
-  const off = still ? 0 : (t/1000*0.35) % 1;
-  for (let k = 0; k < 18; k++){
-    const z = (k + off)/18, y = hz + (h - hz)*Math.pow(z, 2.2);
+  for (let i = -24; i <= 24; i++){ g2.beginPath(); g2.moveTo(cx + i*w*NEAR, hz); g2.lineTo(cx + i*w*FAR, h); g2.stroke(); }
+  const S = still ? 0 : t/1000*SCROLL, off = S % 1;
+  for (let k = 0; k < ROWS; k++){
+    const z = (k + off)/ROWS, y = hz + (h - hz)*Math.pow(z, 2.2);
     g2.globalAlpha = Math.min(1, z*1.6); g2.beginPath(); g2.moveTo(0, y); g2.lineTo(w, y); g2.stroke();
   }
   g2.globalAlpha = 1;
+  if (!still){ stepPulses(dt, S); drawPulses(S, w, h, hz, dpr); }
   if (!still) requestAnimationFrame(drawBg);
 }
 requestAnimationFrame(drawBg);
