@@ -2,7 +2,8 @@
  SEED CITY  —  PROJECT HANDOFF
  Browser game + Meta Quest VR build, made with Claude on 2026-10-09/10
  (original build session, a second session that evening, and a third
- on 2026-10-10)
+ on 2026-10-10). Neon Cycles followed on 2026-10-13; Neon Sumo, the Seed
+ City Arcade and party chat on 2026-10-21 (sections 15c-15f).
 ================================================================================
 
 This file explains what Seed City is, how it was built, how the code is laid
@@ -19,6 +20,10 @@ third (desktop only: new player car, banked turning, online Dogfight).
 
  Repository     github.com/bootleg714/seed-city   (public, branch: main)
  Play: desktop  https://bootleg714.github.io/seed-city/desktop.html
+ Play: Cycles   https://bootleg714.github.io/seed-city/cycles/
+ Play: Sumo     https://bootleg714.github.io/seed-city/sumo/
+ Play: Arcade   https://bootleg714.github.io/seed-city/arcade/
+                (party lobby: friends join one code and move between games)
  Play: VR       https://bootleg714.github.io/seed-city/
                 (open in the Quest browser, press "Enter VR")
  Hosting        GitHub Pages, deploy from branch main, folder / (root)
@@ -740,6 +745,178 @@ third (desktop only: new player car, banked turning, online Dogfight).
    hardware-only fixes (tile lists, font texture, wall flicker).
 
 --------------------------------------------------------------------------------
+ 15c. NEON SUMO (sumo/index.html, built 2026-10-21)
+--------------------------------------------------------------------------------
+
+ Bumper sumo on a shrinking neon platform, one HTML file (~78 KB, ~1,260
+ lines), same stack as Cycles (three.js r128 from cdnjs, PeerJS 1.5.4 from
+ jsDelivr, no build, no asset files: textures are canvas-drawn and every
+ sound is a small Web Audio synth). It reuses Neon Cycles' look (fonts,
+ colours, menu card, HUD) and its networking code almost line for line.
+
+ How it plays
+ - Roll (WASD / arrows / left stick / touch drag on the left 60% of the
+   screen), dash (Space or Shift / A or RT / DASH button), 1.5 s cooldown.
+ - Platform radius 14; shrinks from 6 s at 0.5/s to 5.5, holds 5 s, then a
+   sudden-death shrink to 0 so every round ends. First to 3 rounds wins.
+ - Ball centre past the edge (or into the Donut's hole) = falling; out once
+   it drops below y = -14. Last ball on the platform takes the round.
+ - Tuning constants sit at the top of the script: ACC 19, DRAG 1.7,
+   DASH 15, BOUNCE 1.3 (collisions add a little energy, on purpose),
+   GRAV 32. Bot-only rounds last ~12-35 s.
+
+ Netcode (the big difference from Cycles): balls push each other, so ONE
+ machine runs all the physics, the "authority" (solo player, or the host).
+ - Joiners send {t:'in', x, z, d} 20x/s: stick direction plus a dash
+   counter (a counter, not a flag, so a dash can't be lost).
+ - Host sends {t:'st', n, R, b:[[id,x,z,vx,vz,y,falling]...]} 20x/s.
+ - Joiners predict their own ball (same stepBall + collisions against
+   where the others appear) and blend toward the host: 25% position / 35%
+   velocity per snapshot, snap if more than 3 units off. Other balls are
+   drawn at snapshot + velocity*age (age capped 0.25 s), smoothed.
+ - Match events go through apply(msg) on every machine, emit() = apply +
+   broadcast (the Cycles pattern): roster, round {n, s, scores, a}, bump,
+   dash, out {id, by, left}, final, win, match, lobby, arena, pu, got, post.
+ - PeerJS ids "neonsumo-<CODE>". Fixed 60 Hz physics step (max 6 steps per
+   frame). Host tab in the background = rAF throttled = game stalls for
+   everyone (same as Cycles; not addressed).
+
+ Features added the same day, in order
+ 1. Knockout credit: every bump records lastHit {id, t}; a ball that starts
+    falling within 3 s of a hit credits that player (banks off posts count).
+    Feed top right ("AMBER knocked off LIME" / "fell off" / "left"), KO
+    column on the scoreboard, "Most knockouts" at match end, solo end
+    screen ranks wins then KOs.
+ 2. Slow-motion finish: when a fall leaves <= 1 ball standing, the host
+    emits 'final'; everyone runs at ~0.22x for 1.6 s (eases back over the
+    last 0.45 s) with the camera zooming to that ball and a deep boom.
+    Game time (gdt) drives physics, sparks, timers; real time drives input,
+    networking and the camera easing.
+ 3. Arenas: Classic, Donut (hole radius 2.8, magenta rim; floor is a
+    RingGeometry rebuilt when the inner fraction changes), Bumpers (4 posts
+    at radius 4.6, kick = full reflect + 6; they sink once the edge
+    reaches them, decided from R so every machine agrees). Arena button on
+    the menu and in the lobby: Mixed (one per round in turn, default),
+    Classic, Donut, Bumpers. Saved in localStorage 'neonsumo-arena'; the
+    host's pick is sent to joiners. Bots steer away from the hole.
+ 4. Power-ups: one pickup at a time, first at 5 s, next 8 s after each is
+    taken, placed near the middle (off the hole and away from posts),
+    removed if the edge reaches it. Heavy (violet cube): mass 3 for 5 s
+    (collide() uses inverse masses). Shockwave (cyan ring): instant blast
+    within 6.5 units, credits knockouts, joiners apply the kick to their
+    own ball locally so it feels instant. Grip (lime crystal): accel x1.8,
+    drag 4.2 for 5 s. Aura ring on the ball, timer above the dash bar,
+    feed line. Bots go for pickups when one is close.
+ 5. Experimental Backdrop (menu button, per device, 'neonsumo-backdrop'):
+    Void (default) or Neon city: ~1,000 instanced towers at y = -95 in a
+    block grid with lit-window textures (UVs scaled so windows stay ~2
+    units), neon rooftop rims (instanceColor), magenta street grid, 260
+    flying-traffic points, and a light beam under the platform. Built
+    lazily on first use. Nearby towers are kept short so the view stays
+    clear. Check phones; trim tower/traffic counts if it stutters.
+
+ Fixes along the way
+ - The Claude preview iframe forbids getGamepads(); it threw every frame
+   and stopped the arena drawing. gpGet() now try/catches once and stops
+   asking (gpBlocked). Short windows hide the controls hint.
+ - Players who close the tab are dropped right away (pagehide -> netLeave)
+   instead of after the 8 s ping timeout.
+
+ Solo preview: a private Claude artifact "Neon Sumo" holds a solo-only copy
+ (window.NEONSUMO_SOLO_ONLY hides online play, because artifact pages can't
+ open WebSockets/WebRTC). It was last updated with the city backdrop; it is
+ not needed for anything and can be retired.
+
+--------------------------------------------------------------------------------
+ 15d. SEED CITY ARCADE (arcade/index.html, built 2026-10-21)
+--------------------------------------------------------------------------------
+
+ A party lobby that moves a group between games on one code (~29 KB). No
+ three.js: the background is a 2D canvas neon grid with "electric pulses"
+ (up to 9, slow, ~2.5 s tails) that run down the grid lines and sometimes
+ turn onto a crossing line. Both are off with prefers-reduced-motion.
+
+ Flow
+ - Start a party (PeerJS id "seedarcade-<CODE>") or join by code / invite
+   link (arcade/#room=CODE). Front page also has solo links to both games.
+ - Host clicks a game card -> sends {t:'go', g}, saves the chat log to
+   sessionStorage, then after 400 ms goes to ../<game>/#host=CODE&arcade.
+   Joiners go to ../<game>/#room=CODE&arcade&wait.
+ - In the game, #host=CODE re-opens the SAME code (netHost(0, fixed); on
+   'unavailable-id' it retries every 1 s up to 8 times, the old id may take
+   a moment to free). #room with &wait makes joiners retry
+   'peer-unavailable' every 1.5 s up to 12 times while the host opens.
+ - Game lobbies show "Back to arcade" to the host when the page came from
+   the arcade (ARCADE flag); it sends {t:'arcade'} and everyone returns to
+   arcade/#host=CODE (host) or #room=CODE&wait (joiners).
+ - Hashes are cleared with history.replaceState after reading, so a reload
+   doesn't re-host or re-join.
+
+ Names and chat (added the same evening)
+ - "Your name" on the front page (16 chars, localStorage 'seedarcade-name'),
+   sent in hello; shown in the party list with YOU / HOST tags; "Player N"
+   if blank.
+ - Chat: joiners send {t:'say', x}; the host cleans it (plain text, control
+   chars stripped, 200 chars, 0.7 s cooldown per sender), stamps name and
+   colour, keeps a 60-message log and broadcasts {t:'chat', m}. Welcome
+   carries the last 40. Join/leave notices; no notices while 'going', and
+   none for 25 s after the host re-opens a party coming back from a game
+   (so the return isn't a wall of "joined"). The host restores the log
+   from sessionStorage on return. Rendered with textContent (no HTML).
+ - The party card refreshes only #pcopy, #proster and #pmain when the
+   roster changes; the chat box is never rebuilt (a rebuild could swallow
+   an Enter press mid-message).
+ - No mute or kick yet (owner chose to test without). Anyone with the code
+   can join and chat.
+
+--------------------------------------------------------------------------------
+ 15e. NEON CYCLES CHANGES (2026-10-21)
+--------------------------------------------------------------------------------
+
+ - Arcade hand-off: netHost(attempt, fixed), netJoin(code, attempt) with
+   ARCADE_WAIT retries, goArcade(), "Back to arcade" in the lobby, a link
+   to the arcade on the main menu, #host= / #room= read once then cleared.
+ - Title music: now started inside the click/key handler (musicUpdate(true)
+   on pointerdown, pointerup, keydown, touchend, click) and, if a browser
+   refuses (NotAllowedError), retried on the next real input instead of a
+   3 s timer. Important: Chrome/Edge still play nothing until the first
+   click or key on the page. That is the browser autoplay rule for every
+   site, not a bug; the owner decided not to add a "press any key" screen.
+   A controller button never counts as permission to play sound.
+
+--------------------------------------------------------------------------------
+ 15f. HOW 2026-10-21 WAS TESTED, AND LESSONS
+--------------------------------------------------------------------------------
+
+ - Headless Chromium (Playwright) in the Claude sandbox, files served by
+   python -m http.server. cdnjs is blocked there, so three.js r128 came
+   from a sparse git checkout of mrdoob/three.js (tag r128, build/
+   three.min.js) and requests were routed to it. Fonts were blocked.
+ - A PeerJS stand-in (window.Peer over BroadcastChannel, ~40 ms latency,
+   'peer-unavailable' after 1.5 s, short ping timeout) injected with
+   addInitScript, so several tabs could host and join. The real PeerJS
+   server was never reachable from the sandbox; the owner tested real play.
+ - Test hooks: window.__sumo (state, roster, scores, kos, arena, pickup,
+   riders(), fx(), setArena()) and window.__arcade (page, code, roster,
+   log, say). window.NEONSUMO_TEST_INPUT overrides the stick in tests.
+ - Suites at the end: Sumo 26 checks (solo rounds, knockouts, host/join by
+   link, prediction stays within 2.5 units of the host, scores and KOs
+   match, arena sync, drop on leave, wrong code), arena runs, power-ups
+   online, hub 16 checks (party -> Sumo -> arcade -> Cycles -> arcade ->
+   Sumo -> arcade), chat 13 checks. The scripts lived in the session's
+   scratchpad and were not committed; rebuild them from this description
+   if needed (or ask Claude to add a tests/ folder).
+ - GitHub Pages caches pages for up to ~10 minutes. After a push, test with
+   Ctrl+F5, or friends may still get the old version.
+ - Gotcha found by the tests: performance.now() starts at 0 when a page
+   loads, so a cooldown that starts at 0 drops anything sent in the first
+   0.7 s. Start "last time" values at -1e9.
+ - Gotcha: an autoplay check that only looks at user activation passes in
+   Chrome even when play() runs a frame later; Safari-style strictness
+   needs play() inside the handler. Tested by mocking play() to refuse
+   outside window.event.
+
+--------------------------------------------------------------------------------
  16. IDEAS BACKLOG (discussed, not built)
 --------------------------------------------------------------------------------
 
@@ -768,6 +945,42 @@ third (desktop only: new player car, banked turning, online Dogfight).
       Owner loved the arcade original; wants their own 3D style.
    3. Later idea: small multiplayer FPS in a seeded mini city arena,
       a few weapons (hitscan rifle, shotgun, rockets), deathmatch.
+ - NEXT (from 2026-10-21; nothing below is built):
+   Arcade / chat
+   - Host mute and kick in the party chat (owner skipped it for testing;
+     worth adding before codes are shared widely or with younger players).
+   - Carry arcade names into the games (scoreboards still say "Cyan",
+     "Amber"...); send the name in each game's hello.
+   - A third game card, so the arcade feels like an arcade (see below).
+   Neon Sumo
+   - More arenas: Tilting disc (tips toward the heavier side) and
+     Crumbling tiles (the edge falls away in chunks).
+   - Decide whether the neon city backdrop becomes the default; check it
+     on phones first. A shared hub between all three games' visuals.
+   - Host tab in the background stalls everyone; could warn the host.
+   New games for the arcade, from the first brainstorm (all reuse the
+   PeerJS star + room codes + arcade hand-off; the easiest lift first)
+   1. Light-trail territory control: enclose floor area with your trail
+      in 3D (Paper.io style); timed rounds, great with big lobbies. Very
+      close to the Cycles code.
+   2. Neon hover-tanks arena: slower and tactical, ricocheting shots off
+      glowing walls, destructible cover. Needs host-run physics like Sumo
+      (bullets and bounces), so start from Sumo's netcode.
+   3. Neon racing with hazards: short loop tracks, drop trail segments or
+      mines behind you; reuse Cycles' trails and Sumo's physics.
+   4. Co-op tower defense on a grid: 2-4 players build glowing turrets
+      against waves; a co-op option next to the PvP games.
+   5. Neon prop hunt / hide-and-seek: hide among glowing shapes, seekers
+      scan with a pulse that briefly reveals everyone.
+   6. Shared building canvas: voxel "place" with a per-player cooldown;
+      light server logic, a reason to come back daily.
+   7. Earlier idea (2026-10-12): small multiplayer FPS in a seeded mini
+      city arena (hitscan rifle, shotgun, rockets), deathmatch.
+   Shared code: Cycles, Sumo and the arcade now each carry a copy of the
+   same PeerJS host/join/relay code (loadPeerJS, netHost with fixed codes,
+   netJoin with wait retries, goArcade). A shared net.js would stop the
+   copies drifting; the same refactor note applies to the VR/desktop
+   builds above.
  - Mobile performance: the FPS readout can't show below 20 (dt is capped
    at 0.05 and fpsAcc sums capped dt); slow devices also run in slow
    motion below 20 fps. Consider auto quality for phones.
