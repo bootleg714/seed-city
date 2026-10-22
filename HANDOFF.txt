@@ -904,7 +904,10 @@ third (desktop only: new player car, banked turning, online Dogfight).
    "VR turns", shown only when a headset is available, or thumbstick
    click while riding): Blink (default) fades to black over 0.07 s, cuts
    the view to the bike's new heading (-dir*PI/2) on a frame that is
-   always fully black, then fades back over 0.13 s; Smooth eases the yaw
+   always fully black, then fades back over 0.13 s. In Blink mode the
+   bike you're riding is pinned to the view yaw (no ease, no lean, see
+   updateBikes), so it snaps round in the black frame instead of visibly
+   settling under you afterwards; Smooth eases the yaw
    with the edge vignette (below). The fade is the vignette mesh's uB.
  - Riding: rig at scale 1, eye just in front of the rider's helmet
    (helmet centre is 1.17 up / 0.46 forward of the bike origin). The

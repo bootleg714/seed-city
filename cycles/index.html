@@ -1068,9 +1068,15 @@ function updateBikes(dt){
       if (r.alive){ const l = r.segs[r.segs.length - 1]; u.uLive.value = 1; u.uB.value.set(r.x, r.z); u.uT.value.set(r.tsx, r.tsz); u.uP.value.set(l ? l[0] : r.tsx, l ? l[1] : r.tsz); }
       else u.uLive.value = 0; }
     const ty = -r.dir*Math.PI/2;
-    const dy = ((ty - r.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
-    r.yaw += dy*(1 - Math.exp(-dt*16));
-    r.lean += (Math.max(-0.5, Math.min(0.5, -dy*1.2)) - r.lean)*(1 - Math.exp(-dt*10));
+    if (VR.on && VR.comfort === 'blink' && VR.hidden === r.bike){
+      // VR riding with Blink turns: the bike you're on stays lined up with your view, so it snaps round
+      // during the black frame instead of visibly swinging and leaning under you afterwards
+      r.yaw = VR.rideYaw; r.lean = 0;
+    } else {
+      const dy = ((ty - r.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
+      r.yaw += dy*(1 - Math.exp(-dt*16));
+      r.lean += (Math.max(-0.5, Math.min(0.5, -dy*1.2)) - r.lean)*(1 - Math.exp(-dt*10));
+    }
     r.bike.position.set(r.x, 0, r.z);
     r.bike.rotation.set(0, r.yaw, 0); r.bike.rotateZ(r.lean);
     { const spin = (r.alive && state === 'run' ? speedAt(tRun) : 0)*dt/WHEEL_R; for (const w of r.bike.userData.wheels) w.rotation.x -= spin; }
@@ -1768,7 +1774,7 @@ previewArena(); showPage('main');
   if (hh) setTimeout(() => netHost(0, hh[1].toUpperCase()), 300);
   else if (hm){ lastCode = hm[1].toUpperCase(); setTimeout(() => netJoin(lastCode), 300); } }
 // a little state for automated tests
-window.__cycles = {get state(){ return state; }, get vr(){ return {riderHidden: !!(VR.hidden && VR.hidden.userData.rider && !VR.hidden.userData.rider.visible), on: VR.on, view: VR.view, comfort: VR.comfort, maxDark: VR.maxDark, rideYaw: VR.rideYaw, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
+window.__cycles = {get state(){ return state; }, get vr(){ return {bikeYaw: VR.hidden ? (() => { for (const r of riders.values()) if (r.bike === VR.hidden) return r.yaw; })() : null, riderHidden: !!(VR.hidden && VR.hidden.userData.rider && !VR.hidden.userData.rider.visible), on: VR.on, view: VR.view, comfort: VR.comfort, maxDark: VR.maxDark, rideYaw: VR.rideYaw, hover: VR.hover ? VR.hover.el.textContent : null, scale: rig.scale.x, vig: VR.vig}; }, me: () => { const r = riders.get(myId); return r && {dir: r.dir, alive: r.alive, inRound: r.inRound, x: r.x, z: r.z}; }};
 renderer.setAnimationLoop(frame);   // XR-aware loop (same as requestAnimationFrame on a flat screen)
 })();
 </script>
