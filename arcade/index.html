@@ -65,6 +65,7 @@ main{position:relative;z-index:1;min-height:100%;display:grid;place-items:center
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
+<script src="../net-config.js"></script>
 <main><div class="card" id="card" role="region" aria-label="Seed City Arcade"></div></main>
 <script>
 (() => {
@@ -129,7 +130,7 @@ function show(p){
     const host = net && net.role === 'host';
     const rosterHtml = '<div class="roster">' + roster.map(q => '<div class="pl"><span class="chip" style="color:' + COLORS[q.c % COLORS.length] + '"></span>' + esc(who(q).toUpperCase()) + (q.id === myId ? ' <span class="tag">YOU</span>' : '') + (q.id === 'p0' ? ' <span class="tag">HOST</span>' : '') + '</div>').join('') + '</div>';
     const mainHtml = going ? '<p class="status">HEADING TO ' + GAMES[going].name.toUpperCase() + '…</p>'
-      : host ? '<p class="label">PICK A GAME FOR EVERYONE</p><div class="cabs">' + cab('cycles', {}) + cab('sumo', {}) + '</div>'
+      : host ? '<p class="sub">Keep this page open on screen until everyone is in. Phones pause it in the background.</p><p class="label">PICK A GAME FOR EVERYONE</p><div class="cabs">' + cab('cycles', {}) + cab('sumo', {}) + '</div>'
              : '<p class="sub">You’re in. The host picks the game, and you’ll go there automatically.</p>';
     const copyHtml = host ? '<button class="btn small" data-id="copy"><b>' + (copied ? 'Link copied' : 'Copy invite link') + '</b><span>Opens the arcade straight into this party</span></button>' : '';
     // already showing this party: refresh the changing parts only, so the chat box (and anything half-typed) stays put
@@ -203,10 +204,47 @@ function loadPeerJS(){
     document.head.appendChild(s);
   });
 }
-const opts = () => window.NEONSUMO_PEER_OPTS || {debug: 0};
+const opts = () => window.NEONSUMO_PEER_OPTS || {debug: 0, config: {iceServers: iceServers(), sdpSemantics: 'unified-plan'}};
+/* ---------- connection helpers, the same in every Seed City game ----------
+   Relay servers come from ../net-config.js (shared by all the games), with a built-in fallback. */
+const JOIN_TRIES = 3, JOIN_WAIT = window.SEEDCITY_JOIN_WAIT || 20;
+function iceServers(){
+  return window.SEEDCITY_ICE_SERVERS || [{urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']},
+    {urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp'}];
+}
+// follow the direct connection as it is set up: 'checking' means the host answered
+function watchIce(conn, me, onFail){
+  let n = 0;
+  const look = () => {
+    if (net !== me || me.done || me.joined) return;
+    const pc = conn.peerConnection;
+    if (!pc){ if (++n < 100) setTimeout(look, 200); return; }
+    pc.addEventListener('iceconnectionstatechange', () => {
+      const s = pc.iceConnectionState;
+      if (s === 'checking' && me.stage === 'host') me.stage = 'ice';
+      if (s === 'failed') onFail();
+    });
+  };
+  look();
+}
+function joinError(stage, code){
+  if (stage === 'server') return 'Couldn’t reach the online service that finds rooms. Check your internet connection and try again.';
+  if (stage === 'host' || stage === 'hello') return 'Found room ' + code + ', but the host’s game didn’t answer. The host needs to keep the game open on screen (phones pause it in the background, for example while sharing the link). Ask them to switch back to it, then try again.';
+  return 'Found room ' + code + ', but your device and the host’s couldn’t connect. Some networks (mobile data, school or work Wi-Fi) block game connections: try Wi-Fi, or have someone else host.';
+}
+// keep a hosting phone's screen on, so the game isn't paused while friends join
+let wakeLock = null;
+async function keepAwake(on){
+  try{
+    if (on && !wakeLock && navigator.wakeLock && document.visibilityState === 'visible'){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    else if (!on && wakeLock){ const w = wakeLock; wakeLock = null; await w.release(); }
+  }catch(_){ wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && net && net.role === 'host') keepAwake(true); });
+
 const newCode = () => { const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random()*A.length)]; return c; };
 function fail(text){ leave(); err = text; show('err'); }
-function leave(){ going = null; if (!net) return; const n = net; net = null; try{ n.peer.destroy(); }catch(_){} roster = []; }
+function leave(){ keepAwake(false); going = null; if (!net) return; const n = net; net = null; try{ n.peer.destroy(); }catch(_){} roster = []; }
 function send(m){
   if (!net) return;
   if (net.role === 'host'){ for (const c of net.conns.keys()) if (c.open) c.send(m); }
@@ -219,6 +257,7 @@ async function host(attempt, fixed){
   if (page !== 'wait') return;
   const code = fixed || newCode(), peer = new P(PREFIX + code, opts());
   net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
+  keepAwake(true);
   const me = net;
   peer.on('open', () => {
     if (net !== me) return;
@@ -242,31 +281,41 @@ async function host(attempt, fixed){
     if (page !== 'party') fail('Couldn’t open a party (' + (e.type || 'error') + '). Try again in a moment.');
   });
 }
-async function join(code, attempt, wait){
-  code = String(code || '').trim().toUpperCase(); lastCode = code;
+async function join(code, attempt, wait, tries){
+  // find the party through the PeerJS matchmaker, then connect straight to the host;
+  // each step is tracked so a failure says what went wrong, and failures are retried
+  code = String(code || '').trim().toUpperCase(); lastCode = code; tries = tries || 1;
   if (!/^[A-Z0-9]{4}$/.test(code)){ err = 'Party codes are four letters or digits.'; show('err'); return; }
-  leave(); status = 'Joining party ' + code + '…'; show('wait');
+  leave(); status = 'Joining party ' + code + '…' + (tries > 1 ? '<br>Trying again (' + tries + ' of ' + JOIN_TRIES + ')' : ''); show('wait');
   let P; try{ P = await loadPeerJS(); }catch(e){ return fail('Couldn’t start online play: ' + e.message + '.'); }
   if (page !== 'wait') return;
   const peer = new P(opts());
-  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false};
+  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false, stage: 'server', done: false};
   const me = net;
+  const retry = () => {
+    if (net !== me || me.joined || me.done || going) return;
+    me.done = true;
+    if (tries < JOIN_TRIES) setTimeout(() => { if (net === me) join(code, attempt, wait, tries + 1); }, 700);
+    else fail(joinError(me.stage, code).replace(/room/g, 'party'));
+  };
   peer.on('open', () => {
     if (net !== me) return;
+    me.stage = 'host';
     const conn = peer.connect(PREFIX + code, {reliable: true, serialization: 'json'});
     me.conn = conn;
-    conn.on('open', () => conn.send({t: 'hello', name: myName}));
+    watchIce(conn, me, retry);
+    conn.on('open', () => { me.stage = 'hello'; conn.send({t: 'hello', name: myName}); });
     conn.on('data', d => recv(d, conn));
-    conn.on('close', () => { if (net === me && !going) fail(me.joined ? 'The host closed the party.' : 'The party closed before you got in.'); });
-    conn.on('error', () => { if (net === me && !going) fail('The connection to the host failed.'); });
+    conn.on('close', () => { if (net !== me || going) return; if (me.joined) fail('The host closed the party.'); else retry(); });
+    conn.on('error', () => { if (net !== me || going) return; if (me.joined) fail('The connection to the host failed.'); else retry(); });
   });
   peer.on('error', e => {
     if (net !== me) return;
-    if (e.type === 'peer-unavailable' && wait && (attempt || 0) < 12){ setTimeout(() => { if (net === me) join(code, (attempt || 0) + 1, wait); }, 1500); return; }
-    if (e.type === 'peer-unavailable') fail('No party called ' + code + '. Check the code with the host.');
-    else fail('Connection problem (' + (e.type || 'error') + ').');
+    if (e.type === 'peer-unavailable' && wait && (attempt || 0) < 12){ me.done = true; setTimeout(() => { if (net === me) join(code, (attempt || 0) + 1, wait, tries); }, 1500); return; }
+    if (e.type === 'peer-unavailable'){ me.done = true; fail('No party called ' + code + '. Check the code with the host.'); return; }
+    if (me.joined) fail('Connection problem (' + (e.type || 'error') + ').'); else retry();
   });
-  setTimeout(() => { if (net === me && !me.joined) fail('Couldn’t reach party ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
+  setTimeout(retry, JOIN_WAIT*1000);
 }
 function drop(conn){
   if (!net || net.role !== 'host') return;

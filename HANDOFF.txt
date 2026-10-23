@@ -950,6 +950,38 @@ third (desktop only: new player car, banked turning, online Dogfight).
  (e.g. 0.8) or hide the distant city in VR.
 
 --------------------------------------------------------------------------------
+ 15e-3. JOINING RELIABILITY (2026-10-22)
+--------------------------------------------------------------------------------
+
+ Problem reported: friends intermittently got "Couldn't reach room XXXX"
+ (all games, also with invite links, seen on Android). That message was
+ the 15 s catch-all; WebRTC couldn't connect. PeerJS 1.5.4's defaults are
+ Google STUN plus its own shared TURN (eu-0/us-0.turn.peerjs.com:3478,
+ user peerjs / peerjsp): free, often busy, UDP/TCP 3478 only, which
+ mobile data and school/work networks often block. A second cause: a
+ phone host that leaves the browser (e.g. to share the link) has its game
+ paused, so it never answers.
+
+ Changes (cycles, sumo and arcade; same helper block in each):
+ - ../net-config.js (site root) sets window.SEEDCITY_ICE_SERVERS for all
+   games; peerOpts()/opts() pass {config: {iceServers}}. It has a MY_TURN
+   slot for the owner's own relay (ExpressTURN free tier, 1 TB/month,
+   including turns:...:443 which gets through nearly any network). Until
+   that's filled in, the PeerJS relay is still the fallback.
+ - netJoin/join track me.stage: 'server' (matchmaker not reached) ->
+   'host' (waiting for the host to answer) -> 'ice' (host answered,
+   connecting; from iceconnectionstatechange 'checking') -> 'hello'.
+   A failure (timeout JOIN_WAIT = 20 s, ICE 'failed', conn error/close,
+   other peer errors) retries the whole join up to JOIN_TRIES = 3 times
+   ("Trying again (2 of 3)"), then joinError(stage) says which step
+   failed. 'peer-unavailable' still means no such room, at once.
+ - keepAwake(): screen wake lock while hosting (re-taken when the tab is
+   visible again), released on leave. Host lobbies say to keep the game
+   open on screen.
+ - Tested with the PeerJS stand-in, which now has window.__dropConnects
+   on a host to simulate a game that is registered but doesn't answer.
+
+--------------------------------------------------------------------------------
  15f. HOW 2026-10-21 WAS TESTED, AND LESSONS
 --------------------------------------------------------------------------------
 
@@ -1010,6 +1042,7 @@ third (desktop only: new player car, banked turning, online Dogfight).
       Owner loved the arcade original; wants their own 3D style.
    3. Later idea: small multiplayer FPS in a seeded mini city arena,
       a few weapons (hitscan rifle, shotgun, rockets), deathmatch.
+ - Add a real relay: fill in MY_TURN in net-config.js (see 15e-3).
  - NEXT (from 2026-10-21; nothing below is built):
    Arcade / chat
    - Host mute and kick in the party chat (owner skipped it for testing;

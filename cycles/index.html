@@ -94,6 +94,7 @@ a.back:hover{color:var(--fg)}
 <p id="nogl" hidden style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center">WebGL is not available in this browser, so the arena can't be drawn.</p>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../net-config.js"></script>
 <script>
 (() => {
 'use strict';
@@ -1185,7 +1186,7 @@ function showPage(p){
   } else if (p === 'lobby'){
     const host = net && net.role === 'host', humans = roster.filter(q => !q.bot).length;
     h = '<p class="kicker">' + (banner ? banner : 'ROOM OPEN') + '</p><div class="big">' + (net ? net.code : '') + '</div>'
-      + '<p class="sub">' + (host ? 'Share the code: friends pick Join online and type it in. Add bots to fill the grid, then start when everyone is in.' : 'You’re in. The host starts the match.') + '</p>'
+      + '<p class="sub">' + (host ? 'Share the code: friends pick Join online and type it in. Keep this game open on screen until everyone is in (phones pause it in the background). Add bots to fill the grid, then start.' : 'You’re in. The host starts the match.') + '</p>'
       + rosterHtml() + (host || roster.some(q => q.bot) ? diffPick(host) : '') + arenaPick(host)
       + (host ? '<div class="row">' + btn('rbotless', '− Bot', '', 'small' + (roster.some(q => q.bot) ? '' : ' off')) + btn('rbotmore', '+ Bot', '', 'small' + (roster.length < MAX_RIDERS ? '' : ' off')) + '</div>'
               + btn('start', 'Start match', roster.length < 2 ? 'Needs at least 2 riders (add a bot to practise)' : roster.length + ' riders · first to ' + WIN_ROUNDS, roster.length < 2 ? 'off' : '')
@@ -1263,11 +1264,49 @@ function loadPeerJS(){
     document.head.appendChild(s);
   });
 }
-const peerOpts = () => window.NEONCYCLES_PEER_OPTS || {debug: 0};
+const peerOpts = () => window.NEONCYCLES_PEER_OPTS || {debug: 0, config: {iceServers: iceServers(), sdpSemantics: 'unified-plan'}};
+/* ---------- connection helpers, the same in every Seed City game ----------
+   Relay servers come from ../net-config.js (shared by all the games), with a built-in fallback. */
+const JOIN_TRIES = 3, JOIN_WAIT = window.SEEDCITY_JOIN_WAIT || 20;
+function iceServers(){
+  return window.SEEDCITY_ICE_SERVERS || [{urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']},
+    {urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp'}];
+}
+// follow the direct connection as it is set up: 'checking' means the host answered
+function watchIce(conn, me, onFail){
+  let n = 0;
+  const look = () => {
+    if (net !== me || me.done || me.joined) return;
+    const pc = conn.peerConnection;
+    if (!pc){ if (++n < 100) setTimeout(look, 200); return; }
+    pc.addEventListener('iceconnectionstatechange', () => {
+      const s = pc.iceConnectionState;
+      if (s === 'checking' && me.stage === 'host') me.stage = 'ice';
+      if (s === 'failed') onFail();
+    });
+  };
+  look();
+}
+function joinError(stage, code){
+  if (stage === 'server') return 'Couldn’t reach the online service that finds rooms. Check your internet connection and try again.';
+  if (stage === 'host' || stage === 'hello') return 'Found room ' + code + ', but the host’s game didn’t answer. The host needs to keep the game open on screen (phones pause it in the background, for example while sharing the link). Ask them to switch back to it, then try again.';
+  return 'Found room ' + code + ', but your device and the host’s couldn’t connect. Some networks (mobile data, school or work Wi-Fi) block game connections: try Wi-Fi, or have someone else host.';
+}
+// keep a hosting phone's screen on, so the game isn't paused while friends join
+let wakeLock = null;
+async function keepAwake(on){
+  try{
+    if (on && !wakeLock && navigator.wakeLock && document.visibilityState === 'visible'){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    else if (!on && wakeLock){ const w = wakeLock; wakeLock = null; await w.release(); }
+  }catch(_){ wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && net && net.role === 'host') keepAwake(true); });
+
 function newCode(){ const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i=0;i<4;i++) c += A[Math.floor(Math.random()*A.length)]; return c; }
 function netFail(text){ netErr = text; const keep = net; netLeave(); mode = 'menu'; state = 'idle'; for (const id of [...riders.keys()]) dropRider(id); roster = []; $('#hud').hidden = true; $('#msg').innerHTML = ''; showPage('err'); }
 function netWait(text){ netStatus = text; showPage('wait'); }
 function netLeave(){
+  keepAwake(false);
   if (!net) return;
   const n = net; net = null;
   try{ n.peer.destroy(); }catch(_){}
@@ -1292,6 +1331,7 @@ async function netHost(attempt, fixed){   // fixed: re-open a code we already ho
   if (page !== 'wait') return;
   const code = fixed || newCode(), peer = new P(NET_PREFIX + code, peerOpts());
   net = {role: 'host', code, peer, conns: new Map(), nextId: 1};
+  keepAwake(true);
   const me = net;
   peer.on('open', () => {
     if (net !== me) return;
@@ -1312,31 +1352,42 @@ async function netHost(attempt, fixed){   // fixed: re-open a code we already ho
     if (state !== 'lobby' && mode !== 'online') netFail('Couldn’t open a room (' + (err.type || 'error') + '). Try again in a moment.');
   });
 }
-async function netJoin(code, attempt){
-  code = String(code || '').trim().toUpperCase(); lastCode = code;
+async function netJoin(code, attempt, tries){
+  // Joining: find the room through the PeerJS matchmaker, then connect straight to the host.
+  // Each step is tracked (me.stage) so a failure says what went wrong, and a failed connection
+  // is retried up to JOIN_TRIES times, because many failures are one-off.
+  code = String(code || '').trim().toUpperCase(); lastCode = code; tries = tries || 1;
   if (!/^[A-Z0-9]{4}$/.test(code)){ netErr = 'Room codes are four letters or digits.'; showPage('err'); return; }
-  netLeave(); netWait('Joining room ' + code + '…');
+  netLeave(); netWait('Joining room ' + code + '…' + (tries > 1 ? '<br>Trying again (' + tries + ' of ' + JOIN_TRIES + ')' : ''));
   let P; try{ P = await loadPeerJS(); }catch(e){ return netFail('Couldn’t start online play: ' + e.message + '.'); }
   if (page !== 'wait') return;
   const peer = new P(peerOpts());
-  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false};
+  net = {role: 'client', code, peer, conn: null, hostLast: performance.now()/1000, joined: false, stage: 'server', done: false};
   const me = net;
+  const retry = () => {
+    if (net !== me || me.joined || me.done) return;
+    me.done = true;
+    if (tries < JOIN_TRIES) setTimeout(() => { if (net === me) netJoin(code, attempt, tries + 1); }, 700);
+    else netFail(joinError(me.stage, code));
+  };
   peer.on('open', () => {
     if (net !== me) return;
+    me.stage = 'host';   // the matchmaker knows us; now the host has to answer
     const conn = peer.connect(NET_PREFIX + code, {reliable: true, serialization: 'json'});
     me.conn = conn;
-    conn.on('open', () => conn.send({t: 'hello', v: 1}));
+    watchIce(conn, me, retry);
+    conn.on('open', () => { me.stage = 'hello'; conn.send({t: 'hello', v: 1}); });
     conn.on('data', d => netRecv(d, conn));
-    conn.on('close', () => { if (net === me) netFail(me.joined ? 'The host closed the room.' : 'The room closed before you got in.'); });
-    conn.on('error', () => { if (net === me) netFail('The connection to the host failed.'); });
+    conn.on('close', () => { if (net !== me) return; if (me.joined) netFail('The host closed the room.'); else retry(); });
+    conn.on('error', () => { if (net !== me) return; if (me.joined) netFail('The connection to the host failed.'); else retry(); });
   });
   peer.on('error', err => {
     if (net !== me) return;
-    if (err.type === 'peer-unavailable' && ARCADE_WAIT && (attempt || 0) < 12){ setTimeout(() => { if (net === me) netJoin(code, (attempt || 0) + 1); }, 1500); return; }   // arriving from the arcade: the host may still be opening the room
-    if (err.type === 'peer-unavailable') netFail('No room called ' + code + '. Check the code with the host.');
-    else netFail('Connection problem (' + (err.type || 'error') + ').');
+    if (err.type === 'peer-unavailable' && ARCADE_WAIT && (attempt || 0) < 12){ me.done = true; setTimeout(() => { if (net === me) netJoin(code, (attempt || 0) + 1, tries); }, 1500); return; }   // arriving from the arcade: the host may still be opening the room
+    if (err.type === 'peer-unavailable'){ me.done = true; netFail('No room called ' + code + '. Check the code with the host.'); return; }
+    if (me.joined) netFail('Connection problem (' + (err.type || 'error') + ').'); else retry();
   });
-  setTimeout(() => { if (net === me && !me.joined) netFail('Couldn’t reach room ' + code + '. Some networks block direct connections; try another network or have someone else host.'); }, 15000);
+  setTimeout(retry, JOIN_WAIT*1000);
 }
 function netDrop(conn){
   if (!net || net.role !== 'host') return;
